@@ -20,7 +20,7 @@ constexpr int CALIB_L_ADDR = 8;
 constexpr int CALIB_R_ADDR = 12;
 constexpr int CALIB_IMU_FLAG_ADDR = 16;
 constexpr int IMU_CALIB_ADDR = 20;
-
+constexpr int TRUSTED_DEV_ADDR = 74;
 
 // Размер EEPROM
 constexpr int EEPROM_SIZE = 512;
@@ -105,7 +105,7 @@ HX711 scaleR, scaleL;
 ADXL345 accel;
 ITG3200 gyro;
 MechaQMC5883 qmc;
-SmartPaddle paddle(true, IMU_FREQUENCY); // true - работаем как сервер
+SmartPaddleBLEServer paddle(IMU_FREQUENCY); //  работаем как сервер
 
 IMUSensor imuSensor(accel, gyro, qmc, 
                        IMU_CALIB_ADDR,    // Адрес калибровки IMU
@@ -289,7 +289,7 @@ void setup() {
     // Инициализация IMU
 
     imuSensor.begin();
-    paddle.begin();
+    paddle.begin("SmartPaddle v. 1.0");
     
     // Проверка/генерация ID весла
     uint32_t paddleId;
@@ -325,8 +325,6 @@ void setup() {
         NULL,
         0
     );
-    
-    paddle.begin();
     
     // Добавляем задачу обработки команд
     xTaskCreatePinnedToCore(

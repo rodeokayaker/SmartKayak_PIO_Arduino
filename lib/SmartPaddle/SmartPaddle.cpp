@@ -4,6 +4,8 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <MadgwickAHRS.h>
+#include <EEPROM.h>
+#include <esp_gatts_api.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,10 +15,13 @@ namespace SmartPaddleUUID {
     const char* FORCE_L_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
     const char* FORCE_R_UUID = "cba1d466-344c-4be3-ab3f-189f80dd7518";
     const char* IMU_UUID = "d2e5bfeb-d9f8-4b75-a295-d3f4032086ea";
-
+    const char* STATUS_UUID = "667ACEB9-4E06-4325-B7FD-AE1FE82017D5";
+    const char* SPECS_UUID = "8346E073-0CBB-4F34-B3B7-83203AC052DA";
+    const char* ORIENTATION_UUID = "6EB39A41-1B23-4C63-92ED-B6236DE7E7A6";
+    const char* BLADE_UUID = "C7D2019D-22C9-40C7-ABFB-28F570217153";
 }
 
-
+#define VALID_PAIRING_FLAG 0x42
 
 // Определения для FreeRTOS
 #define SENSOR_STACK_SIZE 4096
@@ -26,8 +31,7 @@ namespace SmartPaddleUUID {
 extern bool log_imu;
 extern bool log_load;
 
-
-void SmartPaddle::updateIMU(IIMU* imu){
+void SmartPaddleBLEServer::updateIMU(IIMU* imu){
     IMUData imuData; 
     imu->getData(imuData);
     OrientationData orientationData;
@@ -49,7 +53,7 @@ void SmartPaddle::updateIMU(IIMU* imu){
     #endif
 }
 
-void SmartPaddle::updateLoads(ILoadCell* right, ILoadCell* left){
+void SmartPaddleBLEServer::updateLoads(ILoadCell* right, ILoadCell* left){
     loadData data;
     data.forceR = (int32_t)right->getForce();
     if (left)
@@ -62,19 +66,15 @@ void SmartPaddle::updateLoads(ILoadCell* right, ILoadCell* left){
 
 
 // Конструктор класса SmartPaddle
-SmartPaddle::SmartPaddle(bool isServer, uint16_t filterFrequency)
-    : batteryLevel(100),         // Инициализация уровня заряда батареи
-      bladeType(TWO_BLADES),     // Инициализация типа лопасти
+SmartPaddleBLEServer::SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency)
+    : SmartPaddle(tdevAddr),
       calibrationFactorL(SmartPaddleConstants::CALIBRATION_FACTOR_L),
       calibrationFactorR(SmartPaddleConstants::CALIBRATION_FACTOR_R),
-      isConnect(false),        // Изначально не подключен
-      operateServer(isServer),   // Установка режима работы (сервер/клиент)
-      #ifdef CALCULATE_ON_SERVER
       orientationQueue(SENSOR_QUEUE_SIZE),
-      #else
       imuQueue(SENSOR_QUEUE_SIZE),
-      #endif
       loadsensorQueue(SENSOR_QUEUE_SIZE),
+      bladeQueue(SENSOR_QUEUE_SIZE),
+      statusQueue(1),
       FilterFrequency(filterFrequency),
       log_imu_level(0)
 {
@@ -82,92 +82,150 @@ SmartPaddle::SmartPaddle(bool isServer, uint16_t filterFrequency)
 }
 
 // класс для подключения и отключения устройства
-class MyServerCallbacks: public BLEServerCallbacks {
+class SPBLEServerCallbacks: public BLEServerCallbacks {
     private:
-    bool* deviceConnected;
+    SmartPaddleBLEServer* server;
     public:
-    void onConnect(BLEServer* pServer) {
-      Serial.println("Connected");
-      *deviceConnected = true;
-    };
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
 
-    void onDisconnect(BLEServer* pServer) {
-      Serial.println("Disconnected");
-      *deviceConnected = false;
+
+        BLEAddress clientAddress(param->connect.remote_bda);
+        
+        if (!server->devicePaired) {
+            // Если нет сохраненного устройства, сохраняем первое подключившееся
+            server->setTrustedDevice(new BLEAddress(clientAddress));
+            Serial.printf("New device paired: %s\n", clientAddress.toString().c_str());
+            server->connect();
+        } 
+        else if (server->trustedDevice->equals(clientAddress)) {
+            // Если адрес совпадает с сохраненным - разрешаем подключение
+            Serial.printf("Trusted device connected: %s\n", clientAddress.toString().c_str());
+            server->connect();
+        } 
+        else {
+            // Если адрес не совпадает - отключаем
+            Serial.printf("Untrusted device rejected: %s\n", clientAddress.toString().c_str());
+            pServer->disconnect(param->connect.conn_handle);
+        }
     }
 
-    MyServerCallbacks(bool* deviceConnectedPTR) {
-        deviceConnected = deviceConnectedPTR;
+    void onDisconnect(BLEServer* pServer) {
+        server->disconnect();
+    }
+
+    SPBLEServerCallbacks(SmartPaddleBLEServer* serverPTR) {
+        server = serverPTR;
     }
 
 };
 
-void SmartPaddle::begin(){
+void SmartPaddleBLEServer::begin(const char* deviceName){
     filter.begin(FilterFrequency);
-    if (operateServer)
-        beginServer("Smart Paddle v. 1.0");
-    else
-        beginClient();
-}
 
-// Метод для инициализации сервера BLE
-void SmartPaddle::beginServer(const char* deviceName) {
-/*    BLEDevice::init(deviceName);
-    BLEServer *pServer = BLEDevice::createServer();
-    pServer->setCallbacks(new MyServerCallbacks(&isConnect));
-
+    BLEDevice::init(deviceName);
+    
+    // Настройка безопасности
+    BLESecurity *pSecurity = new BLESecurity();
+    pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND);
+    pSecurity->setCapability(ESP_IO_CAP_NONE);
+    pSecurity->setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
+    
+    *pServer = *BLEDevice::createServer();
+    pServer->setCallbacks(new SPBLEServerCallbacks(this));
     BLEService *pService = pServer->createService(SmartPaddleUUID::SERVICE_UUID);
 
-    BLECharacteristic *forceL = pService->createCharacteristic(
+    forceLCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::FORCE_L_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    forceL->setValue("0");
 
-    BLECharacteristic *forceR = pService->createCharacteristic(
+    forceRCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::FORCE_R_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    forceR->setValue("0");
 
-    BLECharacteristic *imuData = pService->createCharacteristic(
+    imuCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::IMU_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    imuData->setValue("0");
+    
+    statusCharacteristic = pService->createCharacteristic(
+        SmartPaddleUUID::STATUS_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+
+    specsCharacteristic = pService->createCharacteristic(
+        SmartPaddleUUID::SPECS_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+
+    orientationCharacteristic = pService->createCharacteristic(
+        SmartPaddleUUID::ORIENTATION_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+
+    bladeCharacteristic = pService->createCharacteristic(
+        SmartPaddleUUID::BLADE_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+
 
     pService->start();
 
-    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SmartPaddleUUID::SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x06);
-    pAdvertising->setMinPreferred(0x12);
-    BLEDevice::startAdvertising();*/
+    startAdvertising(BLEDevice::getAdvertising());
 }
 
-// Метод для инициализации клиента BLE
-void SmartPaddle::beginClient() {
-//    BLEDevice::init("SmartPaddleClient");
-    // Настройка клиента BLE
+void SmartPaddleBLEServer::startAdvertising(BLEAdvertising* advertising){
+    advertising->addServiceUUID(SmartPaddleUUID::SERVICE_UUID);
+    advertising->setScanResponse(true);
+    advertising->setMinPreferred(0x06);
+    advertising->setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
 }
 
 // Метод для подключения к веслу
-bool SmartPaddle::connect() {
+bool SmartPaddleBLEServer::connect() {
     // Логика подключения к веслу
     isConnect = true; // Установить в true, если подключение успешно
+    
     return isConnect;
 }
 
 // Метод для отключения от весла
-void SmartPaddle::disconnect() {
+void SmartPaddleBLEServer::disconnect() {
     // Логика отключения от весла
     isConnect = false;
+    delay(500);
+    startAdvertising(BLEDevice::getAdvertising());
 }
 
-// Метод для проверки подключения
-bool SmartPaddle::isConnected() {
-    return isConnect;
+void SmartPaddleBLEServer::setTrustedDevice(BLEAddress* address) {
+
+    EEPROM.put(trustedDeviceAddr+2, address->getNative());
+    EEPROM.put(trustedDeviceAddr, VALID_PAIRING_FLAG);
+    EEPROM.commit();
+    trustedDevice = address;
+    devicePaired = true;
+}
+
+// В конструкторе или begin загружаем сохраненный адрес
+void SmartPaddleBLEServer::loadTrustedDevice() {
+    
+    if (EEPROM.readByte(trustedDeviceAddr) == VALID_PAIRING_FLAG) {
+        esp_bd_addr_t address;
+        EEPROM.get<esp_bd_addr_t>(trustedDeviceAddr+2, address);
+        trustedDevice = new BLEAddress(address);
+        devicePaired = true;
+    } else {
+        trustedDevice = nullptr;
+        devicePaired = false;
+    }
+}
+
+void SmartPaddleBLEServer::clearTrustedDevice() {
+
+    trustedDevice = nullptr;
+    devicePaired = false;
 }
 
 

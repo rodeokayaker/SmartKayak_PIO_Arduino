@@ -2,6 +2,7 @@
 #define SmartPaddle_h
 #include <Arduino.h>
 #include <MadgwickAHRS.h>
+#include <BLEServer.h>
 
 #define SENSOR_QUEUE_SIZE 10
 #define CALCULATE_ON_SERVER
@@ -40,6 +41,13 @@ struct OrientationData {
     uint32_t timestamp;               // Timestamp in milliseconds
 };
 
+struct BladeData {
+    uint8_t bladeSide;
+    float quaternion[4];
+    float force;
+    uint32_t timestamp;
+};
+
 #define TWO_BLADES 1
 #define ONE_BLADE 0
 
@@ -63,23 +71,20 @@ public:
     virtual ~IIMU() = default;
 };
 
-class IBleCommunication {
-public:
-    virtual void init(const char* name) = 0;
-    virtual void sendData(const void* data, size_t length) = 0;
-    virtual bool receiveData(void* data, size_t length) = 0;
-    virtual bool isConnected() = 0;
-    virtual ~IBleCommunication() = default;
-};
-
 
 struct PaddleSpecs{
     uint32_t PaddleID;                // Paddle ID
     uint8_t bladeType;                // Blade type (TWO_BLADES or ONE_BLADE)
-    float featheredAngle;             // Feathered angle of the paddle
-    float featheredQuaternion[4];     // Feathered orientation
+    float leftFeatheredQuaternion[4];     // Feathered orientation
+    float rightFeatheredQuaternion[4];     // Feathered orientation
 };
 
+struct PaddleStatus{
+    int8_t batteryLevel;
+    int8_t temperature;
+};
+
+// Класс для очереди с перезаписью
 template<typename T>
 class OverwritingQueue {
 private:
@@ -109,33 +114,64 @@ public:
 };
 
 
-// Class for smart paddle control
+// Class for smart paddle unified interface
 class SmartPaddle {
+    protected:
+    PaddleSpecs specs;
+    uint32_t KayakID;                // Kayak ID
+    PaddleStatus status;
+    bool isConnected;                  // Paddle connection status
+    const int trustedDeviceAddr;
+
+    public:
+    SmartPaddle(int tdevAddr):specs(),KayakID(0),status(),isConnected(false),trustedDeviceAddr(tdevAddr){}
+    virtual void begin(const char* deviceName)=0;
+    virtual void setPaddleID(uint32_t id)=0;
+    virtual void setFilterFrequency(uint32_t frequency)=0;
+
+    
+    virtual void updateIMU(IIMU* imu)=0;
+    virtual void updateLoads(ILoadCell* right, ILoadCell* left=0)=0;
+
+    virtual bool connect()=0;                   // Connect to paddle
+    virtual void disconnect()=0;               // Disconnect paddle
+    bool connected() {return isConnected;}
+ 
+};
+
+
+class SmartPaddleBLEServer : public SmartPaddle {
+    friend class SPBLEServerCallbacks;
 private:
-    PaddleSpecs specs;               // Paddle specifications
-    uint8_t batteryLevel;            // Battery level in percentage
-    uint8_t bladeType;                // Blade type (TWO_BLADES or ONE_BLADE)
-    float calibrationFactorL;           // Calibration factor for left blade
-    float calibrationFactorR;           // Calibration factor for right blade
+    float calibrationFactorL;        // Calibration factor for left blade
+    float calibrationFactorR;        // Calibration factor for right blade
     bool isConnect;                  // Paddle connection status
-    bool operateServer;                // Wether this instanse used for server or client
     uint16_t FilterFrequency;
     Madgwick filter;
 
     OverwritingQueue<loadData> loadsensorQueue;
-
-    #ifdef CALCULATE_ON_SERVER
-    OverwritingQueue<OrientationData> orientationQueue;   
-    #else
+    OverwritingQueue<OrientationData> orientationQueue;       
     OverwritingQueue<IMUData> imuQueue;
-    #endif
-
-    IBleCommunication* bleComm;
+    OverwritingQueue<BladeData> bladeQueue;
+    OverwritingQueue<PaddleStatus> statusQueue;
 
     int8_t log_imu_level;
 
-    public:
+    BLEServer* pServer;
+    BLECharacteristic *forceLCharacteristic;
+    BLECharacteristic *forceRCharacteristic;
+    BLECharacteristic *imuCharacteristic;
+    BLECharacteristic *statusCharacteristic;
+    BLECharacteristic *specsCharacteristic;
+    BLECharacteristic *orientationCharacteristic;
+    BLECharacteristic *bladeCharacteristic;
+    BLEAdvertising *pAdvertising;
 
+    BLEAddress* trustedDevice;
+    bool devicePaired;
+    
+    
+public:
     void set_log_imu(int8_t level){
         log_imu_level = level;
     }
@@ -144,22 +180,26 @@ private:
         return log_imu_level;
     }
 
-    SmartPaddle(bool isServer=true, uint16_t filterFrequency=50);
+    SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency=50);
 
-    void begin();
-    void beginClient();
-    void beginServer(const char* deviceName);
-    void setPaddleID(uint32_t id);
+    void begin(const char* deviceName);
+    void setPaddleID(uint32_t id){specs.PaddleID=id;}
+    void setPaddleType(uint8_t type){specs.bladeType=type;}    
     void setFilterFrequency(uint32_t frequency){FilterFrequency=frequency;}
 
     void updateIMU(IIMU* imu);
     void updateLoads(ILoadCell* right, ILoadCell* left=0);
+    void updateBLE();
+
+    void startAdvertising(BLEAdvertising* advertising);
 
     bool connect();                   // Connect to paddle
     void disconnect();               // Disconnect paddle
-    bool isConnected();                // Check if paddle is active
- 
-};
+
+    void setTrustedDevice(BLEAddress* address);
+    void loadTrustedDevice();
+    void clearTrustedDevice();
+}; 
 
 #endif
 
