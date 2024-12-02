@@ -3,6 +3,7 @@
 #include <EEPROM.h>
 #include "HX711.h"
 #include "Wire.h"
+#include "esp_log.h"
 
 // Определения пинов
 constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
@@ -32,6 +33,7 @@ constexpr byte VALID_CALIB_FLAG = 0x42;
 #define IMU_STACK_SIZE 4096
 #define LOAD_FREQUENCY 10
 #define IMU_FREQUENCY 50
+#define BLE_STACK_SIZE 4096
 
 static bool log_imu = false;
 static bool log_load = false;
@@ -59,6 +61,7 @@ public:
         }
         
         // Чтение калибровки из EEPROM
+        EEPROM.begin(512);
         if(EEPROM.read(CALIB_LOAD_FLAG_ADDR) == VALID_CALIB_FLAG) {
             calibrationFactor = EEPROM.readFloat(eepromAddr);
             scale.set_scale(calibrationFactor);
@@ -67,7 +70,7 @@ public:
             scale.set_scale();
             calibValid = false;
         }
-        
+        EEPROM.end();
         scale.tare();
         return true;
     }
@@ -86,9 +89,11 @@ public:
         calibrationFactor = reading / 1000.0; // 1kg = 1000g
         
         scale.set_scale(calibrationFactor);
+        EEPROM.begin(512);
         EEPROM.writeFloat(eepromAddr, calibrationFactor);
         EEPROM.write(CALIB_LOAD_FLAG_ADDR, VALID_CALIB_FLAG);
         EEPROM.commit();
+        EEPROM.end();
         
         calibValid = true;
     }
@@ -147,6 +152,17 @@ void imuTask(void *pvParameters) {
     }
 }
 
+// Задача обработки BLE
+void bleTask(void *pvParameters) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 100Hz для BLE
+    
+    while(1) {
+        paddle.updateBLE();
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
 // Команды калибровки
 #define CMD_CALIBRATE_LOAD "calibrate_load"
 #define CMD_CALIBRATE_IMU "calibrate_imu"
@@ -156,6 +172,9 @@ void imuTask(void *pvParameters) {
 #define CMD_LOG_IMU "log_imu"
 #define CMD_LOG_LOAD "log_load"
 #define CMD_LOG_STOP "log_stop"
+#define CMD_PAIR "pair"
+#define CMD_UNPAIR "unpair"
+#define CMD_BLE_STATUS "ble_status"
 
 // Обработка команд
 void processCommand(const char* cmd) {
@@ -177,6 +196,9 @@ void processCommand(const char* cmd) {
         Serial.println("calibrate_imu  - Calibrate IMU sensors");
         Serial.println("calibrate_all  - Calibrate all sensors");
         Serial.println("status         - Show current sensor status");
+        Serial.println("pair          - Start BLE pairing mode");
+        Serial.println("unpair        - Clear paired device");
+        Serial.println("ble_status    - Show BLE connection status");
         Serial.println("help           - Show this help");
         Serial.println("log_imu        - Start logging IMU data");
         Serial.println("log_load       - Start logging load data");
@@ -225,7 +247,28 @@ void processCommand(const char* cmd) {
         Serial.print(imuSensor.getCalibrationData().magOffset[1]);
         Serial.print(", ");
         Serial.println(imuSensor.getCalibrationData().magOffset[2]);
-
+        
+        // Добавляем статус BLE
+        Serial.println("\nBLE Status:");
+        Serial.printf("Connected: %s\n", paddle.connected() ? "Yes" : "No");
+        Serial.printf("Pairing Mode: %s\n", paddle.isPairing() ? "Yes" : "No");
+    }
+    else if(strcmp(cmd, CMD_PAIR) == 0) {
+        Serial.println("Starting BLE pairing mode...");
+        paddle.startPairing();
+    }
+    else if(strcmp(cmd, CMD_UNPAIR) == 0) {
+        Serial.println("Clearing paired device... ");
+        paddle.clearTrustedDevice();
+    }
+    else if(strcmp(cmd, CMD_BLE_STATUS) == 0) {
+        Serial.println("BLE Status:");
+        Serial.printf("Connected: %s\n", paddle.connected() ? "Yes" : "No");
+        Serial.printf("Pairing Mode: %s\n", paddle.isPairing() ? "Yes" : "No");
+        if(paddle.connected()) {
+            Serial.println("Client Info:");
+            // Можно добавить дополнительную информацию о подключенном клиенте
+        }
     }
     else if(strcmp(cmd, CMD_LOG_IMU) == 0)  {
         log_imu = true;
@@ -272,12 +315,13 @@ void serialCommandTask(void *pvParameters) {
 
 
 void setup() {
+    esp_log_level_set("*", ESP_LOG_ERROR);
     Serial.begin(115200);
     while (!Serial) delay(10);
     
     delay(1000);
 
-    EEPROM.begin(EEPROM_SIZE);
+
     Wire.begin(I2C_SDA, I2C_SCL);
     
     Serial.println("\nSmart Paddle Initializing...");
@@ -305,7 +349,7 @@ void setup() {
         Serial.println("Type 'help' for available commands.\n");
     } 
         
-    // Создание задач
+    // Создание задач на ядре 0
     xTaskCreatePinnedToCore(
         loadCellTask,
         "LoadCell",
@@ -326,7 +370,17 @@ void setup() {
         0
     );
     
-    // Добавляем задачу обработки команд
+    // Задачи на ядре 1
+    xTaskCreatePinnedToCore(
+        bleTask,
+        "BLE",
+        BLE_STACK_SIZE,
+        NULL,
+        2,  // Более высокий приоритет для BLE
+        NULL,
+        1
+    );
+    
     xTaskCreatePinnedToCore(
         serialCommandTask,
         "SerialCmd",
@@ -334,14 +388,18 @@ void setup() {
         NULL,
         1,
         NULL,
-        1  // На втором ядре
+        1
     );
+    
+    // Инициализация BLE с уникальным ID весла
+    char deviceName[32];
+    snprintf(deviceName, sizeof(deviceName), "SmartPaddle-%08X", paddleId);
+    paddle.begin(deviceName);
     
     Serial.println("Smart Paddle Ready!");
     Serial.println("Type 'help' for available commands");
 }
 
 void loop() {
-    // Второе ядро пока свободно для BLE
     vTaskDelete(NULL);
 } 

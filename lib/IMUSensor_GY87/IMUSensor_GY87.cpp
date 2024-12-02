@@ -1,12 +1,12 @@
 /**
- * @file IMUSensor_GY85.cpp
- * @brief Реализация библиотеки для работы с IMU модулем GY-85
+ * @file IMUSensor_GY87.cpp
+ * @brief Реализация библиотеки для работы с IMU модулем GY-87
  * 
  * @author Ivan Rybnikov
  * @copyright Copyright (c) 2024
  */
-
-#include "IMUSensor_GY85.h"
+#ifdef 0
+#include "IMUSensor_GY87.h"
 
 // Флаг валидной калибровки в EEPROM
 constexpr byte VALID_IMU_CALIB_FLAG = 0x42;
@@ -73,19 +73,23 @@ bool IMUSensor::readCalibrationData() {
 }
 
 bool IMUSensor::begin() {
-    if(!accel.testConnection() || !gyro.testConnection()) {
+    baro.begin(0);
+    baro.measurement(3); // 0 - грязные данные 1-2-3 повышение качества данных
+
+
+    if(!accelgyro.testConnection() || !compass.testConnection()) {
         Serial.println("IMU initialization failed!");
         return false;
     }
     
-    accel.initialize();
-    gyro.initialize();
-    mag.init();
+    accelgyro.initialize();
+    compass.init();
     
     // Установка базовых параметров
-    accel.setRange(ADXL345_RANGE_2G);
-    gyro.setFullScaleRange(ITG3200_FULLSCALE_2000);
-    gyro.setDLPFBandwidth(ITG3200_DLPF_BW_42);
+    accelgyro.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+    accelgyro.setFullScaleGyroRange(MPU6050_GYRO_FS_2000);      
+ 
+    compass.calibrate();
 
     readCalibrationData();        
     return true;
@@ -206,3 +210,5 @@ IMUData IMUSensor::getData() {
 bool IMUSensor::isCalibrationValid() {
     return calibValid;
 }
+
+#endif

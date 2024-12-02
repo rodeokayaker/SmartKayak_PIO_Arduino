@@ -45,12 +45,6 @@ struct IMUCalibData {
 };
 
 /**
- * @brief Вспомогательные функции для работы с EEPROM
- */
-void EEPROM_writeBytes(int addr, const void* data, size_t length);
-void EEPROM_readBytes(int addr, void* data, size_t length);
-
-/**
  * @brief Класс для работы с IMU модулем GY-85
  * 
  * Обеспечивает:

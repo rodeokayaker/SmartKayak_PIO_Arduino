@@ -3,10 +3,9 @@
 #include <Arduino.h>
 #include <MadgwickAHRS.h>
 #include <BLEServer.h>
+#include <BLEClient.h>
 
 #define SENSOR_QUEUE_SIZE 10
-#define CALCULATE_ON_SERVER
-
 
 
 // UUID для BLE сервисов и характеристик
@@ -33,6 +32,7 @@ struct IMUData {
     float ax, ay, az;    // Acceleration raw data
     float gx, gy, gz;      // Angular velocity raw data
     float mx, my, mz;         // Magnetic field raw data
+    float q0, q1, q2, q3;    // Quaternion if available
     uint32_t timestamp;               // Timestamp in milliseconds
 };
 
@@ -132,10 +132,14 @@ class SmartPaddle {
     
     virtual void updateIMU(IIMU* imu)=0;
     virtual void updateLoads(ILoadCell* right, ILoadCell* left=0)=0;
+    virtual void updateBLE()=0;
+    virtual void updateMadgwick(IMUData& imuData)=0;
+
 
     virtual bool connect()=0;                   // Connect to paddle
     virtual void disconnect()=0;               // Disconnect paddle
     bool connected() {return isConnected;}
+    virtual void startPairing()=0;
  
 };
 
@@ -145,7 +149,6 @@ class SmartPaddleBLEServer : public SmartPaddle {
 private:
     float calibrationFactorL;        // Calibration factor for left blade
     float calibrationFactorR;        // Calibration factor for right blade
-    bool isConnect;                  // Paddle connection status
     uint16_t FilterFrequency;
     Madgwick filter;
 
@@ -156,10 +159,10 @@ private:
     OverwritingQueue<PaddleStatus> statusQueue;
 
     int8_t log_imu_level;
+    bool send_specs;
 
     BLEServer* pServer;
-    BLECharacteristic *forceLCharacteristic;
-    BLECharacteristic *forceRCharacteristic;
+    BLECharacteristic *forceCharacteristic;
     BLECharacteristic *imuCharacteristic;
     BLECharacteristic *statusCharacteristic;
     BLECharacteristic *specsCharacteristic;
@@ -168,8 +171,21 @@ private:
     BLEAdvertising *pAdvertising;
 
     BLEAddress* trustedDevice;
-    bool devicePaired;
-    
+    BLESecurity* pSecurity;
+    bool is_pairing;
+    uint16_t conn_id;
+
+    void setTrustedDevice(BLEAddress* address);
+    void loadTrustedDevice();
+public:
+    void clearTrustedDevice();
+private:
+    void printBondedDevices();
+    void removeAllBondedDevices();
+    void removeBondedDevice(BLEAddress address);
+    bool isBonded(BLEAddress address);    
+    bool connect();                   // Connect to paddle
+
     
 public:
     void set_log_imu(int8_t level){
@@ -192,14 +208,93 @@ public:
     void updateBLE();
 
     void startAdvertising(BLEAdvertising* advertising);
-
-    bool connect();                   // Connect to paddle
     void disconnect();               // Disconnect paddle
 
-    void setTrustedDevice(BLEAddress* address);
-    void loadTrustedDevice();
-    void clearTrustedDevice();
+    void startPairing();
+    void updateMadgwick(IMUData& imuData);
+    void sendSpecs(){send_specs=true;}
+    bool isPairing(){return is_pairing;}
 }; 
+
+// Класс для работы со SmartPaddle на стороне клиента (каяка)
+class SmartPaddleBLEClient : public SmartPaddle {
+    friend class SPBLEClientCallbacks;
+    friend class SPBLEClientScanCallbacks;
+
+private:
+    BLEClient* pClient;
+    BLERemoteService* pRemoteService;
+    BLERemoteCharacteristic* forceChar;
+    BLERemoteCharacteristic* imuChar;
+    BLERemoteCharacteristic* statusChar;
+    BLERemoteCharacteristic* specsChar;
+    BLERemoteCharacteristic* orientationChar;
+    BLERemoteCharacteristic* bladeChar;
+    
+    BLEAddress* trustedDevice;
+    BLESecurity* pSecurity;
+
+    bool is_pairing;
+    
+    
+    // Очереди для хранения полученных данных
+
+    //TODO: для подключения нескольких весел, с этим нужно будет поработать
+    //Надо будет сделать очередь для каждого весла
+    static OverwritingQueue<loadData> loadsensorQueue;
+    static OverwritingQueue<OrientationData> orientationQueue;
+    static OverwritingQueue<IMUData> imuQueue;
+    static OverwritingQueue<BladeData> bladeQueue;
+    static OverwritingQueue<PaddleStatus> statusQueue;
+    
+    // Колбэки для получения нотификаций
+    //TODO: для подключения нескольких весел, с этим нужно будет поработать
+    //Надо будет сделать отдельные колбэки для каждого весла
+    static void forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    static void imuCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    static void orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    static void bladeCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    static void statusCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    static void specsCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    
+    void loadTrustedDevice();
+    void saveTrustedDevice(BLEAddress* address);
+    void clearTrustedDevice();
+
+    bool setupCharacteristics();
+    
+public:
+    SmartPaddleBLEClient(int tdevAddr);
+    
+    // Реализация интерфейса SmartPaddle
+    void begin(const char* deviceName) override;
+    void setPaddleID(uint32_t id) override { specs.PaddleID = id; }
+    void setFilterFrequency(uint32_t frequency) override {} // Не используется на клиенте
+    
+    // Эти методы не используются на клиенте
+    void updateIMU(IIMU* imu) override {}
+    void updateLoads(ILoadCell* right, ILoadCell* left = 0) override {}
+    void updateBLE() override;
+    void updateMadgwick(IMUData& imuData) override {}
+    
+    bool connect() override;
+    void disconnect() override;
+    void startPairing() override;
+    
+    // Дополнительные методы для получения данных
+    bool getLoadData(loadData& data);
+    bool getIMUData(IMUData& data);
+    bool getOrientationData(OrientationData& data);
+    bool getBladeData(BladeData& data);
+    bool getStatusData(PaddleStatus& data);
+    PaddleSpecs getSpecs();
+    bool isPairing(){return is_pairing;}
+    
+    // Методы для работы со сканированием
+    void startScan(uint32_t duration = 5);
+    void stopScan();
+    std::vector<BLEAdvertisedDevice> getScannedDevices();
+};
 
 #endif
 
