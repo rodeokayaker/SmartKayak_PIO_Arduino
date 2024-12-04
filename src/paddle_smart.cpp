@@ -4,6 +4,13 @@
 #include "HX711.h"
 #include "Wire.h"
 #include "esp_log.h"
+#include "driver/uart.h"
+#include "esp_intr_alloc.h"
+#include "esp_event.h"
+#include "esp_private/usb_console.h"  // для CDC событий
+
+#define INCLUDE_vTaskDelayUntil 1
+
 
 // Определения пинов
 constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
@@ -33,11 +40,15 @@ constexpr byte VALID_CALIB_FLAG = 0x42;
 #define IMU_STACK_SIZE 4096
 #define LOAD_FREQUENCY 10
 #define IMU_FREQUENCY 50
+#define BLE_FREQUENCY 100
+
 #define BLE_STACK_SIZE 4096
 
 static bool log_imu = false;
 static bool log_load = false;
 
+// Глобальная переменная для хранения handle задачи
+TaskHandle_t serialTaskHandle = NULL;
 
 // Класс для работы с тензодатчиками
 class LoadCell : public ILoadCell {
@@ -126,6 +137,9 @@ uint32_t generatePaddleID() {
 }
 
 
+static uint32_t last_load_time = millis();
+static float frequency_load = 10;
+
 // Задача чтения тензодатчиков
 void loadCellTask(void *pvParameters) {
 
@@ -133,31 +147,57 @@ void loadCellTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/LOAD_FREQUENCY);
     
     while(1) {
-//        Serial.println("Load cell task is running!");
-        paddle.updateLoads(&rightCell, &leftCell);
+        int32_t time_diff = millis()-last_load_time;
+        last_load_time = millis();
+        frequency_load = 100.0/(99.0/frequency_load+time_diff/1000.0);
+//        Serial.printf("Load cell callback time = %d, frequency = %f\n", time_diff, frequency_load);
+        if (paddle.connected()) {
+            paddle.updateLoads(&rightCell, &leftCell);
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // Задача чтения IMU
+
+static uint32_t last_imu_time = millis();
+static float frequency_imu = 50;
+
 void imuTask(void *pvParameters) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/IMU_FREQUENCY);
     
     while(1) {
-//        Serial.println("IMU task is running!");
-        paddle.updateIMU(&imuSensor);
+        int32_t time_diff = millis()-last_imu_time;
+        last_imu_time = millis();
+        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
+//        Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);
+
+        if (paddle.connected()) {
+            paddle.updateIMU(&imuSensor);
+        }
+        
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
     }
 }
 
+
 // Задача обработки BLE
+static uint32_t last_ble_time = millis();
+static float frequency_ble = 100;
+
 void bleTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(10); // 100Hz для BLE
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_FREQUENCY);
     
     while(1) {
+        int32_t time_diff = millis()-last_ble_time;
+        last_ble_time = millis();
+        frequency_ble = 100.0/(99.0/frequency_ble+time_diff/1000.0);
+//        Serial.printf("BLE callbck time = %d, frequency = %f\n", time_diff, frequency_ble);
+
         paddle.updateBLE();
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
@@ -295,8 +335,7 @@ void serialCommandTask(void *pvParameters) {
     int cmdIndex = 0;
     
     while(1) {
-  //      Serial.println("Serial command task is running!");
-        if(Serial.available()) {
+         if(Serial.available()) {
             char c = Serial.read();
             
             if(c == '\n' || c == '\r'|| c == ' '|| c == '!') {
@@ -308,20 +347,38 @@ void serialCommandTask(void *pvParameters) {
             } else if(cmdIndex < 31) {
                 cmdBuffer[cmdIndex++] = c;
             }
+        } else {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
 
+// Обработчик прерывания для получения данных через Serial
+void IRAM_ATTR onSerialReceive(void* arg, esp_event_base_t base, int32_t event_id, void* event_data) {
+    // Проверяем, что это событие получения данных
+    if (event_id == ARDUINO_HW_CDC_RX_EVENT) {  // или CDC_EVENT_RX
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(serialTaskHandle, &xHigherPriorityTaskWoken);
+        if (xHigherPriorityTaskWoken) {
+            portYIELD_FROM_ISR();
+        }
+    }
+    // Другие события можно игнорировать
+}
+
+// Установка прерывания для получения данных через Serial
+void setupSerialInterrupt() {
+    // Устанавливаем функцию обработки прерывания для Serial
+    Serial.onEvent(ARDUINO_HW_CDC_RX_EVENT, onSerialReceive);
+    Serial.println("Serial interrupt setup complete");
+}
+
 void setup() {
-    esp_log_level_set("*", ESP_LOG_ERROR);
     Serial.begin(115200);
     while (!Serial) delay(10);
     
     delay(1000);
-
-
     Wire.begin(I2C_SDA, I2C_SCL);
     
     Serial.println("\nSmart Paddle Initializing...");
@@ -333,22 +390,36 @@ void setup() {
     // Инициализация IMU
 
     imuSensor.begin();
-    paddle.begin("SmartPaddle v. 1.0");
+
+    // Инициализация Весла
     
     // Проверка/генерация ID весла
     uint32_t paddleId;
     paddleId = generatePaddleID();
- 
+    paddle.setPaddleID(paddleId);
+    paddle.setFilterFrequency(IMU_FREQUENCY);
+
+    // Инициализация Весла
+    paddle.begin("SmartPaddle v. 1.0");
+
+
     Serial.printf("Paddle ID: %08X\n", paddleId);
     
     // Проверка калибровки
-    if(!imuSensor.isCalibrationValid() || !leftCell.isCalibrationValid() || !rightCell.isCalibrationValid()) {
-        Serial.println("\n*** WARNING: Calibration required! ***");
+    if(!imuSensor.isCalibrationValid()) {
+        Serial.println("\n*** WARNING: IMU calibration required! ***");
         Serial.println("Current calibration data is missing or outdated.");
-        Serial.println("Please run 'calibrate_all' command to perform full calibration.");
-        Serial.println("Type 'help' for available commands.\n");
+        Serial.println("Please run 'calibrate_imu' command to perform calibration.");
     } 
-        
+
+    if(!leftCell.isCalibrationValid() || !rightCell.isCalibrationValid()) {
+        Serial.println("\n*** WARNING: Load cell calibration required! ***");
+        Serial.println("Current calibration data is missing or outdated.");
+        Serial.println("Please run 'calibrate_load' command to perform calibration.");
+    }
+
+    Serial.println("Type 'help' for available commands.\n");        
+    
     // Создание задач на ядре 0
     xTaskCreatePinnedToCore(
         loadCellTask,
@@ -369,6 +440,7 @@ void setup() {
         NULL,
         0
     );
+
     
     // Задачи на ядре 1
     xTaskCreatePinnedToCore(
@@ -387,18 +459,22 @@ void setup() {
         4096,
         NULL,
         1,
-        NULL,
+        &serialTaskHandle,
         1
     );
+
+    setupSerialInterrupt();
     
-    // Инициализация BLE с уникальным ID весла
+/*    // Инициализация BLE с уникальным ID весла
     char deviceName[32];
     snprintf(deviceName, sizeof(deviceName), "SmartPaddle-%08X", paddleId);
     paddle.begin(deviceName);
-    
+*/  
+
     Serial.println("Smart Paddle Ready!");
     Serial.println("Type 'help' for available commands");
 }
+
 
 void loop() {
     vTaskDelete(NULL);

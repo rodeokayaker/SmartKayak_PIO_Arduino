@@ -122,13 +122,13 @@ class SmartPaddle {
     PaddleStatus status;
     bool isConnected;                  // Paddle connection status
     const int trustedDeviceAddr;
-
+    bool run_madgwick;
     public:
-    SmartPaddle(int tdevAddr):specs(),KayakID(0),status(),isConnected(false),trustedDeviceAddr(tdevAddr){}
+    SmartPaddle(int tdevAddr):specs(),KayakID(0),status(),isConnected(false),trustedDeviceAddr(tdevAddr),run_madgwick(false){}
     virtual void begin(const char* deviceName)=0;
     virtual void setPaddleID(uint32_t id)=0;
     virtual void setFilterFrequency(uint32_t frequency)=0;
-
+    virtual void setRunMadgwick(bool run){run_madgwick=run;}
     
     virtual void updateIMU(IIMU* imu)=0;
     virtual void updateLoads(ILoadCell* right, ILoadCell* left=0)=0;
@@ -211,7 +211,7 @@ public:
     void disconnect();               // Disconnect paddle
 
     void startPairing();
-    void updateMadgwick(IMUData& imuData);
+    void updateMadgwick(IMUData& imuData) override;
     void sendSpecs(){send_specs=true;}
     bool isPairing(){return is_pairing;}
 }; 
@@ -235,6 +235,8 @@ private:
     BLESecurity* pSecurity;
 
     bool is_pairing;
+    bool do_connect;
+    bool do_scan;
     
     
     // Очереди для хранения полученных данных
