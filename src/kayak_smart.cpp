@@ -2,14 +2,23 @@
 #include <EEPROM.h>
 #include "Wire.h"
 #include "esp_log.h"
+#include "IMUSensor_GY85.h"
+#include "MadgwickAHRS.h"
+
+#define INCLUDE_vTaskDelayUntil 1
 
 // Адреса в EEPROM
-constexpr int TRUSTED_DEV_ADDR = 74;
+constexpr int CALIB_IMU_FLAG_ADDR = 16;
+constexpr int IMU_CALIB_ADDR = 20;
+constexpr int TRUSTED_DEV_ADDR = 128;
+
 
 // FreeRTOS определения
 #define BLE_STACK_SIZE 4096
 #define PROCESS_STACK_SIZE 4096
-#define PROCESS_FREQUENCY 50  // Частота обработки данных в Гц
+#define PROCESS_FREQUENCY 98  // Частота обработки данных в Гц
+#define IMU_FREQUENCY 98
+#define BLE_FREQUENCY 100
 
 static bool log_paddle = false;
 
@@ -30,11 +39,51 @@ struct {
     bool statusValid = false;
 } paddleData;
 
+class SmartKayak {
+private:
+    IIMU* imu;
+    Madgwick filter;
+    IMUData imu_data;
+
+
+public:
+    SmartKayak(IIMU* imu) : imu(imu) {};
+    void begin(int frequency=IMU_FREQUENCY)
+    {
+        if (imu){ if (!imu->begin()) Serial.println("IMU init failed");} else {
+            Serial.println("IMU not initialized");
+        }
+        filter.begin(frequency);
+    };
+
+    void updateIMU() {
+        imu->getData(imu_data);
+        filter.update(imu_data.ax, imu_data.ay, imu_data.az, imu_data.gx, imu_data.gy, imu_data.gz, imu_data.mx, imu_data.my, imu_data.mz);
+    }
+
+    OrientationData getOrientation() {
+        return filter.getOrientation();
+    }
+};
+
+ADXL345 accel;
+ITG3200 gyro;
+MechaQMC5883 qmc;
+
+IMUSensor imu(accel, gyro, qmc, 
+                       IMU_CALIB_ADDR,    // Адрес калибровки IMU
+                       CALIB_IMU_FLAG_ADDR); // Адрес флага калибровки IMU
+SmartKayak kayak(&imu);
+
+
 // Задача обработки BLE
 void bleTask(void *pvParameters) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_FREQUENCY);
+
     while(1) {
         paddle.updateBLE();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
@@ -103,22 +152,36 @@ void processDataTask(void *pvParameters) {
     }
 }
 
+void imuTask(void *pvParameters) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/IMU_FREQUENCY);
+    IMUData imu_data;
+
+    while(1) {  
+        kayak.updateIMU();
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+void 
+
 // Команды управления
 #define CMD_HELP "help"
 #define CMD_STATUS "status"
 #define CMD_PAIR "pair"
 #define CMD_LOG_START "log_start"
 #define CMD_LOG_STOP "log_stop"
-
+#define CMD_IMU_CALIBRATE "calibrate_imu"
 // Обработка команд
 void processCommand(const char* cmd) {
     if(strcmp(cmd, CMD_HELP) == 0) {
         Serial.println("Available commands:");
-        Serial.println("pair      - Start pairing with paddle");
-        Serial.println("status    - Show current paddle status");
-        Serial.println("log_start - Start logging paddle data");
-        Serial.println("log_stop  - Stop logging paddle data");
-        Serial.println("help      - Show this help");
+        Serial.println("pair          - Start pairing with paddle");
+        Serial.println("status        - Show current paddle status");
+        Serial.println("log_start     - Start logging paddle data");
+        Serial.println("log_stop      - Stop logging paddle data");
+        Serial.println("calibrate_imu - Start IMU calibration");
+        Serial.println("help          - Show this help");
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
         Serial.printf("Connection status: %s\n", 
@@ -145,6 +208,8 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_LOG_STOP) == 0) {
         log_paddle = false;
         Serial.println("Logging stopped");
+    } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
+        imu.calibrate();
     }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
@@ -170,7 +235,7 @@ void serialCommandTask(void *pvParameters) {
                 cmdBuffer[cmdIndex++] = c;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -179,9 +244,12 @@ void setup() {
     while (!Serial) delay(10);
     
     delay(1000);
+    Wire.begin();
     
     Serial.println("\nKayak Smart System Initializing...");
-    
+
+    filter.begin(IMU_FREQUENCY);
+    kayak.begin();
     // Инициализация BLE клиента
     paddle.begin("KayakClient");
     
@@ -191,9 +259,9 @@ void setup() {
         "BLE",
         BLE_STACK_SIZE,
         NULL,
-        1,
+        2,
         NULL,
-        0  // BLE на ядре 0
+        1  // BLE на ядре 1
     );
     
     xTaskCreatePinnedToCore(
@@ -203,7 +271,7 @@ void setup() {
         NULL,
         1,
         NULL,
-        1  // Обработка на ядре 1
+        0  // Обработка на ядре 0
     );
     
     xTaskCreatePinnedToCore(
@@ -213,7 +281,7 @@ void setup() {
         NULL,
         1,
         NULL,
-        1  // Команды на ядре 1
+        0  // Команды на ядре 0
     );
     
     Serial.println("Kayak Smart System Ready!");

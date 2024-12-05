@@ -88,7 +88,6 @@ class SPBLEServerCallbacks: public BLEServerCallbacks {
         
         if (server->connected()){
             Serial.printf("Already connected to %s\n", server->trustedDevice->toString().c_str());
-
 //            pServer->disconnect(param->connect.conn_id);
             return;
         }
@@ -156,7 +155,7 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
     loadTrustedDevice();
     Serial.println("Device name: " + String(deviceName));
     BLEDevice::init(deviceName);
-    BLEDevice::setMTU(517);
+    BLEDevice::setMTU(BLEMTU);
     BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT);
     BLEDevice::setSecurityCallbacks(new MySecurity());
     
@@ -521,10 +520,10 @@ void SmartPaddleBLEClient::imuCallback(BLERemoteCharacteristic* pChar, uint8_t* 
     int32_t time_diff = millis()-last_notify_time;
     last_notify_time = millis();
     frequency_notify = 100.0/(99.0/frequency_notify+time_diff/1000.0);
-    Serial.printf("IMU callback time = %d, frequency = %f\n", time_diff, frequency_notify);
+//    Serial.printf("IMU callback time = %d, frequency = %f\n", time_diff, frequency_notify);
     IMUData data;
     if(length == sizeof(IMUData)) {
-        Serial.printf("IMU data match\n");
+//        Serial.printf("IMU data match\n");
         memcpy(&data, pData, sizeof(IMUData));
         imuQueue.send(data);
     }
@@ -566,24 +565,24 @@ void SmartPaddleBLEClient::specsCallback(BLERemoteCharacteristic* pChar, uint8_t
 }
 
 // Методы для получения данных из очередей
-bool SmartPaddleBLEClient::getLoadData(loadData& data) {
-    return loadsensorQueue.receive(data, 0);
+bool SmartPaddleBLEClient::getLoadData(loadData& data, TickType_t timeout) {
+    return loadsensorQueue.receive(data, timeout);
 }
 
-bool SmartPaddleBLEClient::getIMUData(IMUData& data) {
-    return imuQueue.receive(data, 0);
+bool SmartPaddleBLEClient::getIMUData(IMUData& data, TickType_t timeout) {
+    return imuQueue.receive(data, timeout);
 }
 
-bool SmartPaddleBLEClient::getStatusData(PaddleStatus& data) {
-    return statusQueue.receive(data, 0);
+bool SmartPaddleBLEClient::getStatusData(PaddleStatus& data, TickType_t timeout) {
+    return statusQueue.receive(data, timeout);
 }   
 
-bool SmartPaddleBLEClient::getOrientationData(OrientationData& data) {
-    return orientationQueue.receive(data, 0);
+bool SmartPaddleBLEClient::getOrientationData(OrientationData& data, TickType_t timeout) {
+    return orientationQueue.receive(data, timeout);
 }      
 
-bool SmartPaddleBLEClient::getBladeData(BladeData& data) {
-    return bladeQueue.receive(data, 0);
+bool SmartPaddleBLEClient::getBladeData(BladeData& data, TickType_t timeout) {
+    return bladeQueue.receive(data, timeout);
 }   
 
 
@@ -690,7 +689,7 @@ void SmartPaddleBLEClient::begin(const char* deviceName) {
 
     do_connect=false;
     BLEDevice::init(deviceName);
-    BLEDevice::setMTU(517);
+    BLEDevice::setMTU(BLEMTU);
     
     // Настройка безопасности
     BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT);
@@ -709,7 +708,7 @@ void SmartPaddleBLEClient::begin(const char* deviceName) {
     pScan->setInterval(2000);
     pScan->setWindow(1500);
 
-    Serial.printf("Trusted device: %s\n", trustedDevice->toString().c_str());
+    if (trustedDevice) Serial.printf("Trusted device: %s\n", trustedDevice->toString().c_str());
     do_scan=true;
 
 }
@@ -742,10 +741,10 @@ bool SmartPaddleBLEClient::connect() {
         return false;
     }
 
-    if (pClient->setMTU(517)) {
-        Serial.println("Set MTU to 517");
+    if (pClient->setMTU(BLEMTU)) {
+        Serial.printf("Set MTU to %d\n", BLEMTU);
     } else {
-        Serial.println("Failed to set MTU to 517");
+        Serial.printf("Failed to set MTU to %d\n", BLEMTU);
     }
     
     Serial.println("Connected to trusted device");

@@ -196,7 +196,7 @@ public:
         return log_imu_level;
     }
 
-    SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency=50);
+    SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency=98);
 
     void begin(const char* deviceName);
     void setPaddleID(uint32_t id){specs.PaddleID=id;}
@@ -284,11 +284,11 @@ public:
     void startPairing() override;
     
     // Дополнительные методы для получения данных
-    bool getLoadData(loadData& data);
-    bool getIMUData(IMUData& data);
-    bool getOrientationData(OrientationData& data);
-    bool getBladeData(BladeData& data);
-    bool getStatusData(PaddleStatus& data);
+    bool getLoadData(loadData& data, TickType_t timeout = 0);
+    bool getIMUData(IMUData& data, TickType_t timeout = 0);
+    bool getOrientationData(OrientationData& data, TickType_t timeout = 0);
+    bool getBladeData(BladeData& data, TickType_t timeout = 0);
+    bool getStatusData(PaddleStatus& data, TickType_t timeout = 0);
     PaddleSpecs getSpecs();
     bool isPairing(){return is_pairing;}
     

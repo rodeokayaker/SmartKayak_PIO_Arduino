@@ -28,7 +28,7 @@ constexpr int CALIB_L_ADDR = 8;
 constexpr int CALIB_R_ADDR = 12;
 constexpr int CALIB_IMU_FLAG_ADDR = 16;
 constexpr int IMU_CALIB_ADDR = 20;
-constexpr int TRUSTED_DEV_ADDR = 74;
+constexpr int TRUSTED_DEV_ADDR = 128;
 
 // Размер EEPROM
 constexpr int EEPROM_SIZE = 512;
@@ -39,8 +39,8 @@ constexpr byte VALID_CALIB_FLAG = 0x42;
 #define SENSOR_STACK_SIZE 4096
 #define IMU_STACK_SIZE 4096
 #define LOAD_FREQUENCY 10
-#define IMU_FREQUENCY 50
-#define BLE_FREQUENCY 100
+#define IMU_FREQUENCY 98
+#define BLE_FREQUENCY 98
 
 #define BLE_STACK_SIZE 4096
 
@@ -161,7 +161,7 @@ void loadCellTask(void *pvParameters) {
 // Задача чтения IMU
 
 static uint32_t last_imu_time = millis();
-static float frequency_imu = 50;
+static float frequency_imu = 98;
 
 void imuTask(void *pvParameters) {
     
@@ -465,11 +465,6 @@ void setup() {
 
     setupSerialInterrupt();
     
-/*    // Инициализация BLE с уникальным ID весла
-    char deviceName[32];
-    snprintf(deviceName, sizeof(deviceName), "SmartPaddle-%08X", paddleId);
-    paddle.begin(deviceName);
-*/  
 
     Serial.println("Smart Paddle Ready!");
     Serial.println("Type 'help' for available commands");

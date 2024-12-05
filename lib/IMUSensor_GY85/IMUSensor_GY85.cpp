@@ -51,16 +51,16 @@ void IMUSensor::setDefaultCalibration() {
 
 void IMUSensor::saveCalibrationData() {
     EEPROM.begin(512);
-    EEPROM.write(imuValidFlagAddr, VALID_IMU_CALIB_FLAG);
-    EEPROM.put(imuCalibAddr, calibData);
+    EEPROM.writeByte(imuValidFlagAddr, VALID_IMU_CALIB_FLAG);
+    EEPROM.put<IMUCalibData>(imuCalibAddr, calibData);
     EEPROM.commit();
     EEPROM.end();
 }
 
 bool IMUSensor::readCalibrationData() {
     EEPROM.begin(512);
-    if(EEPROM.read(imuValidFlagAddr) == VALID_IMU_CALIB_FLAG) {
-        EEPROM.get(imuCalibAddr, calibData);
+    if(EEPROM.readByte(imuValidFlagAddr) == VALID_IMU_CALIB_FLAG) {
+        EEPROM.get<IMUCalibData>(imuCalibAddr, calibData);
         calibValid = true;
         EEPROM.end();
         return true;
@@ -85,7 +85,7 @@ bool IMUSensor::begin() {
     // Установка базовых параметров
     accel.setRange(ADXL345_RANGE_2G);
     gyro.setFullScaleRange(ITG3200_FULLSCALE_2000);
-    gyro.setDLPFBandwidth(ITG3200_DLPF_BW_42);
+    gyro.setDLPFBandwidth(ITG3200_DLPF_BW_98);
 
     readCalibrationData();        
     return true;
@@ -98,7 +98,7 @@ void IMUSensor::calibrate() {
     setDefaultCalibration();
     
     int32_t ax_sum = 0, ay_sum = 0, az_sum = 0;
-    const int samples = 100;
+    const int samples = 1000;
     int32_t gx_sum = 0, gy_sum = 0, gz_sum = 0;
     
     for(int i = 0; i < samples; i++) {
@@ -123,9 +123,9 @@ void IMUSensor::calibrate() {
     accel_offset[1] = -(ay_sum / samples) / 4;
     accel_offset[2] = -(az_sum / samples) / 4;
     
-    calibData.gyroOffset[0] = -(float)gx_sum / (float)samples;
-    calibData.gyroOffset[1] = -(float)gy_sum / (float)samples;
-    calibData.gyroOffset[2] = -(float)gz_sum / (float)samples;
+    calibData.gyroOffset[0] = -gx_sum / samples;
+    calibData.gyroOffset[1] = -gy_sum / samples;
+    calibData.gyroOffset[2] = -(gz_sum / samples);
     
     Serial.println("Rotate device in all directions for magnetometer calibration");
     int16_t mx_min = 32767, my_min = 32767, mz_min = 32767;
@@ -148,9 +148,9 @@ void IMUSensor::calibrate() {
     }
     
     // Вычисление параметров калибровки магнитометра
-    calibData.magOffset[0] = -(float)(mx_max + mx_min) / 2;
-    calibData.magOffset[1] = -(float)(my_max + my_min) / 2;
-    calibData.magOffset[2] = -(float)(mz_max + mz_min) / 2;
+    calibData.magOffset[0] = -(mx_max + mx_min) / 2;
+    calibData.magOffset[1] = -(my_max + my_min) / 2;
+    calibData.magOffset[2] = -(mz_max + mz_min) / 2;
     
     calibData.magScale[0] = 1000.0f / (float)(mx_max - mx_min);
     calibData.magScale[1] = 1000.0f / (float)(my_max - my_min);
@@ -162,12 +162,24 @@ void IMUSensor::calibrate() {
 }
 
 void IMUSensor::getData(IMUData& data) {
+    #if 0
     data.ax = (accel.getAccelerationX() + calibData.accelOffset[0]) * calibData.accelScale[0];
     data.ay = (accel.getAccelerationY() + calibData.accelOffset[1]) * calibData.accelScale[1];
     data.az = (accel.getAccelerationZ() + calibData.accelOffset[2]) * calibData.accelScale[2];
     data.gx = (gyro.getRotationX() + calibData.gyroOffset[0]) * calibData.gyroScale[0];
     data.gy = (gyro.getRotationY() + calibData.gyroOffset[1]) * calibData.gyroScale[1];
     data.gz = (gyro.getRotationZ() + calibData.gyroOffset[2]) * calibData.gyroScale[2];
+    #else
+    data.ax = accel.getAccelerationX();
+    data.ay = accel.getAccelerationY();
+    data.az = accel.getAccelerationZ();
+
+    data.gx = (gyro.getRotationX() + calibData.gyroOffset[0]) * calibData.gyroScale[0];
+    data.gy = (gyro.getRotationY() + calibData.gyroOffset[1]) * calibData.gyroScale[1];
+    data.gz = (gyro.getRotationZ() + calibData.gyroOffset[2]) * calibData.gyroScale[2];
+
+    #endif
+
     int mx, my, mz;
     mag.read(&mx, &my, &mz);
     data.mx = ((float)mx + calibData.magOffset[0]) * calibData.magScale[0];
