@@ -4,11 +4,6 @@
  * 
  * @author Ivan Rybnikov
  * @copyright Copyright (c) 2024
- * 
- * Обеспечивает работу с IMU модулем GY-87, включая:
- * - Инициализацию и калибровку датчиков
- * - Чтение и обработку данных
- * - Сохранение калибровочных данных в EEPROM
  */
 
 #ifndef IMUSensor_GY87_h
@@ -20,15 +15,13 @@
 #include <iarduino_Pressure_BMP.h>
 #include "MPU6050_6Axis_MotionApps20.h"
 #include <QMC5883LCompass.h>
-#include <MadgwickAHRS.h>
 
-// Структура для хранения калибровочных данных IMU
 struct IMUCalibData {
-    // Калибровочные данные MPU6050
+    // MPU6050
     int16_t accelOffset[3];
     int16_t gyroOffset[3];
     
-    // Калибровочные данные QMC5883L
+    // QMC5883L
     float magOffset[3];
     float magScale[3];
 };
@@ -38,7 +31,6 @@ private:
     MPU6050 mpu;                  // MPU6050 (акселерометр + гироскоп)
     QMC5883LCompass compass;      // Магнитометр
     iarduino_Pressure_BMP baro;   // Барометр
-    Madgwick filter;              // Фильтр Madgwick
     
     IMUData currentData;          // Текущие данные с датчиков
     bool calibValid;              // Флаг валидности калибровки
@@ -60,7 +52,12 @@ private:
     VectorFloat gravity;
     float ypr[3];
     
-    // Преобразование сырых данных в физические величины
+    // Дополнительные данные
+    float pressure;    // Давление в Па
+    float temperature; // Температура в °C
+    float altitude;    // Высота в метрах
+    
+    // Преобразование сырых данных
     float convertRawAcceleration(int16_t aRaw);
     float convertRawGyro(int16_t gRaw);
     float convertRawCompass(int mag);
@@ -82,7 +79,15 @@ public:
     IMUData getData() override;
     bool isCalibrationValid() override;
     
+    // Дополнительные методы
     void setLogLevel(int8_t level) { log_imu = level; }
+    float getPressure() { return pressure; }
+    float getTemperature() { return temperature; }
+    float getAltitude() { return altitude; }
+    
+    // Получение ориентации
+    void getYawPitchRoll(float* ypr);
+    void getQuaternion(float* quat);
 };
 
 #endif

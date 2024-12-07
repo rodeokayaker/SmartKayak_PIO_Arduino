@@ -8,6 +8,7 @@
 #include "esp_intr_alloc.h"
 #include "esp_event.h"
 #include "esp_private/usb_console.h"  // для CDC событий
+#include "LoadCellHX711.h"
 
 #define INCLUDE_vTaskDelayUntil 1
 
@@ -51,69 +52,6 @@ static bool log_load = false;
 TaskHandle_t serialTaskHandle = NULL;
 
 // Класс для работы с тензодатчиками
-class LoadCell : public ILoadCell {
-private:
-    HX711& scale;
-
-    bool calibValid;
-    int eepromAddr;
-    
-public:
-
-    float calibrationFactor;
-
-    LoadCell(HX711& scale, int eepromCalibAddr) 
-        : scale(scale), eepromAddr(eepromCalibAddr), calibValid(false) {}
-    
-    bool begin() override {
-        if(!scale.wait_ready_timeout(1000)) {
-            Serial.println("HX711 not found!");
-            return false;
-        }
-        
-        // Чтение калибровки из EEPROM
-        EEPROM.begin(512);
-        if(EEPROM.read(CALIB_LOAD_FLAG_ADDR) == VALID_CALIB_FLAG) {
-            calibrationFactor = EEPROM.readFloat(eepromAddr);
-            scale.set_scale(calibrationFactor);
-            calibValid = true;
-        } else {
-            scale.set_scale();
-            calibValid = false;
-        }
-        EEPROM.end();
-        scale.tare();
-        return true;
-    }
-    
-    float getForce() override {
-        return scale.get_units(1);
-    }
-    
-    void calibrate() override {
-        scale.set_scale();
-        scale.tare();
-        Serial.println("Place 1kg weight and wait...");
-        delay(5000);
-        
-        float reading = scale.get_units(10);
-        calibrationFactor = reading / 1000.0; // 1kg = 1000g
-        
-        scale.set_scale(calibrationFactor);
-        EEPROM.begin(512);
-        EEPROM.writeFloat(eepromAddr, calibrationFactor);
-        EEPROM.write(CALIB_LOAD_FLAG_ADDR, VALID_CALIB_FLAG);
-        EEPROM.commit();
-        EEPROM.end();
-        
-        calibValid = true;
-    }
-    
-    bool isCalibrationValid() override {
-        return calibValid;
-    }
-};
-
 
 
 // Глобальные объекты
@@ -121,14 +59,14 @@ HX711 scaleR, scaleL;
 ADXL345 accel;
 ITG3200 gyro;
 MechaQMC5883 qmc;
+LoadCellHX711 leftCell(scaleL, CALIB_L_ADDR, CALIB_LOAD_FLAG_ADDR);
+LoadCellHX711 rightCell(scaleR, CALIB_R_ADDR, CALIB_LOAD_FLAG_ADDR);
+
 SmartPaddleBLEServer paddle(IMU_FREQUENCY); //  работаем как сервер
 
 IMUSensor imuSensor(accel, gyro, qmc, 
                        IMU_CALIB_ADDR,    // Адрес калибровки IMU
                        CALIB_IMU_FLAG_ADDR); // Адрес флага калибровки IMU
-
-LoadCell leftCell(scaleL, CALIB_L_ADDR);
-LoadCell rightCell(scaleR, CALIB_R_ADDR);
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -247,9 +185,9 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_STATUS) == 0) {
        Serial.println("LOAD Calibration: ");
         Serial.print("Left: ");
-        Serial.print(leftCell.calibrationFactor);
+        Serial.print(leftCell.getCalibrationData().calibrationFactor);
         Serial.print(" Right: ");
-        Serial.println(rightCell.calibrationFactor);
+        Serial.println(rightCell.getCalibrationData().calibrationFactor);
         Serial.println("IMU Calibration: ");
         Serial.print("Accel Scale: ");
         Serial.print(imuSensor.getCalibrationData().accelScale[0]);
