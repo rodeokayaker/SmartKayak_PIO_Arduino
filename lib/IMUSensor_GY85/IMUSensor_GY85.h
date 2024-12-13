@@ -15,7 +15,6 @@
 #define IMUSensor_GY85_h
 
 #include "SmartPaddle.h"
-#include <EEPROM.h>
 #include <ITG3200.h>
 #include <MechaQMC5883.h>
 #include <ADXL345.h>
@@ -54,7 +53,7 @@ struct IMUCalibData {
  * - Сохранение/загрузку калибровочных данных в/из EEPROM
  * - Логирование данных
  */
-class IMUSensor : public IIMU {
+class IMUSensor_GY85 : public IIMU {
 private:
     ADXL345& accel;              // Акселерометр
     ITG3200& gyro;               // Гироскоп
@@ -62,9 +61,8 @@ private:
     IMUData currentData;          // Текущие данные с датчиков
     bool calibValid;              // Флаг валидности калибровки
     IMUCalibData calibData;       // Калибровочные данные
-    const int imuCalibAddr;       // Адрес в EEPROM для хранения калибровки
-    const int imuValidFlagAddr;   // Адрес в EEPROM для флага валидности
     int8_t log_imu;              // Уровень логирования (0 - отключено)
+    Stream* logStream;            // Поток для логирования
      
 public:
     /**
@@ -76,8 +74,8 @@ public:
      * @param imuAddr Адрес в EEPROM для хранения калибровочных данных
      * @param imuValidFlagAddr Адрес в EEPROM для флага валидности калибровки
      */
-    IMUSensor(ADXL345& a, ITG3200& g, MechaQMC5883& m, 
-              int imuAddr, int imuValidFlagAddr);
+    IMUSensor_GY85(ADXL345& a, ITG3200& g, MechaQMC5883& m, 
+               Stream* logStream = nullptr);
 
     // Методы для работы с калибровкой
     IMUCalibData& getCalibrationData();    // Получить текущие калибровочные данные
@@ -103,6 +101,10 @@ public:
      */
     void setLogLevel(int8_t level) {
         log_imu = level;
+    };
+
+    void setLogStream(Stream* stream = nullptr) override {
+        if (stream) logStream = stream; else logStream = &Serial;
     };
 };
 

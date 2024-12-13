@@ -7,27 +7,28 @@
  */
 
 #include "IMUSensor_GY85.h"
-
-// Флаг валидной калибровки в EEPROM
-constexpr byte VALID_IMU_CALIB_FLAG = 0x42;
-
+#include <Preferences.h>
 // Конструктор с инициализацией всех полей
-IMUSensor::IMUSensor(ADXL345& a, ITG3200& g, MechaQMC5883& m, 
-                     int imuAddr, int imuValidFlagAddr) 
-    : accel(a), gyro(g), mag(m), calibValid(false),
-      imuCalibAddr(imuAddr), imuValidFlagAddr(imuValidFlagAddr), log_imu(0) {
+IMUSensor_GY85::IMUSensor_GY85(ADXL345& a, ITG3200& g, MechaQMC5883& m, Stream* logStream) 
+    : accel(a), gyro(g), mag(m), calibValid(false), log_imu(0), logStream(logStream) {
+    if(!logStream) {
+        logStream = &Serial;
+    }
 }
 
-IMUCalibData& IMUSensor::getCalibrationData() {
+IMUCalibData& IMUSensor_GY85::getCalibrationData() {
     return calibData;
 }
 
-void IMUSensor::resetCalibration() {
+void IMUSensor_GY85::resetCalibration() {
     calibValid = false;
-    EEPROM.write(imuValidFlagAddr, 0);
+    Preferences prefs;
+    prefs.begin("imu", false);
+    prefs.clear();
+    prefs.end();
 }
 
-void IMUSensor::setDefaultCalibration() {
+void IMUSensor_GY85::setDefaultCalibration() {
     calibValid = false;
     calibData.magOffset[0] = 0;
     calibData.magOffset[1] = 0;
@@ -49,32 +50,32 @@ void IMUSensor::setDefaultCalibration() {
     calibData.accelScale[2] = 0.039f;
 }
 
-void IMUSensor::saveCalibrationData() {
-    EEPROM.begin(512);
-    EEPROM.writeByte(imuValidFlagAddr, VALID_IMU_CALIB_FLAG);
-    EEPROM.put<IMUCalibData>(imuCalibAddr, calibData);
-    EEPROM.commit();
-    EEPROM.end();
+void IMUSensor_GY85::saveCalibrationData() {
+    Preferences prefs;
+    prefs.begin("imu", false);
+    prefs.putBytes("calibData", (byte*)&calibData, sizeof(IMUCalibData));
+    prefs.end();
 }
 
-bool IMUSensor::readCalibrationData() {
-    EEPROM.begin(512);
-    if(EEPROM.readByte(imuValidFlagAddr) == VALID_IMU_CALIB_FLAG) {
-        EEPROM.get<IMUCalibData>(imuCalibAddr, calibData);
+bool IMUSensor_GY85::readCalibrationData() {
+    Preferences prefs;
+    prefs.begin("imu", false);
+    if(prefs.isKey("calibData")) {
+        prefs.getBytes("calibData", (byte*)&calibData, sizeof(IMUCalibData));
         calibValid = true;
-        EEPROM.end();
+        prefs.end();
         return true;
     } else {
         setDefaultCalibration();
         calibValid = false;
-        EEPROM.end();
+        prefs.end();
         return false;
     }
 }
 
-bool IMUSensor::begin() {
+bool IMUSensor_GY85::begin() {
     if(!accel.testConnection() || !gyro.testConnection()) {
-        Serial.println("IMU initialization failed!");
+        logStream->println("IMU initialization failed!");
         return false;
     }
     
@@ -91,9 +92,9 @@ bool IMUSensor::begin() {
     return true;
 }
 
-void IMUSensor::calibrate() {
-    Serial.println("Starting IMU calibration...");
-    Serial.println("Keep device still for initial calibration");
+void IMUSensor_GY85::calibrate() {
+    logStream->println("Starting IMU calibration...");
+    logStream->println("Keep device still for initial calibration");
 
     setDefaultCalibration();
     
@@ -127,7 +128,7 @@ void IMUSensor::calibrate() {
     calibData.gyroOffset[1] = -gy_sum / samples;
     calibData.gyroOffset[2] = -(gz_sum / samples);
     
-    Serial.println("Rotate device in all directions for magnetometer calibration");
+    logStream->println("Rotate device in all directions for magnetometer calibration");
     int16_t mx_min = 32767, my_min = 32767, mz_min = 32767;
     int16_t mx_max = -32768, my_max = -32768, mz_max = -32768;
     
@@ -158,10 +159,10 @@ void IMUSensor::calibrate() {
     
     saveCalibrationData();
     calibValid = true;
-    Serial.println("Calibration complete!");
+    logStream->println("Calibration complete!");
 }
 
-void IMUSensor::getData(IMUData& data) {
+void IMUSensor_GY85::getData(IMUData& data) {
     #if 0
     data.ax = (accel.getAccelerationX() + calibData.accelOffset[0]) * calibData.accelScale[0];
     data.ay = (accel.getAccelerationY() + calibData.accelOffset[1]) * calibData.accelScale[1];
@@ -187,34 +188,34 @@ void IMUSensor::getData(IMUData& data) {
     data.mz = ((float)mz + calibData.magOffset[2]) * calibData.magScale[2];
 
     if (log_imu) {
-        Serial.print("Accel: ");
-        Serial.print(data.ax);
-        Serial.print(", ");
-        Serial.print(data.ay);
-        Serial.print(", ");
-        Serial.println(data.az);
-        Serial.print("Gyro: ");
-        Serial.print(data.gx);
-        Serial.print(", ");
-        Serial.print(data.gy);
-        Serial.print(", ");
-        Serial.println(data.gz);
-        Serial.print("Mag: ");
-        Serial.print(data.mx);
-        Serial.print(", ");
-        Serial.print(data.my);
-        Serial.print(", ");
-        Serial.println(data.mz);
+        logStream->print("Accel: ");
+        logStream->print(data.ax);
+        logStream->print(", ");
+        logStream->print(data.ay);
+        logStream->print(", ");
+        logStream->println(data.az);
+        logStream->print("Gyro: ");
+        logStream->print(data.gx);
+        logStream->print(", ");
+        logStream->print(data.gy);
+        logStream->print(", ");
+        logStream->println(data.gz);
+        logStream->print("Mag: ");
+        logStream->print(data.mx);
+        logStream->print(", ");
+        logStream->print(data.my);
+        logStream->print(", ");
+        logStream->println(data.mz);
     }
     
     data.timestamp = millis();
 }
 
-IMUData IMUSensor::getData() {
+IMUData IMUSensor_GY85::getData() {
     getData(currentData);
     return currentData;
 }
 
-bool IMUSensor::isCalibrationValid() {
+bool IMUSensor_GY85::isCalibrationValid() {
     return calibValid;
 }

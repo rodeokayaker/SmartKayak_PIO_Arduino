@@ -42,7 +42,7 @@ constexpr int TRUSTED_DEV_ADDR = 128;
 #define PROCESS_FREQUENCY 98  // Частота обработки данных в Гц
 #define IMU_FREQUENCY 98
 #define BLE_FREQUENCY 100
-#define BUTTON_FREQUENCY 10
+#define BLE_SERIAL_FREQUENCY 10
 static bool log_paddle = false;
 
 // Глобальные объекты
@@ -283,7 +283,7 @@ void ButtonDriver::begin(int frequency) {
     );
 }
 
-
+class SmartKayak;
 class PowerButton : public ButtonDriver {
 private:
 
@@ -291,14 +291,15 @@ LEDDriver greenLED;
 LEDDriver blueLED;
 LEDDriver redLED;
 int currentMode;
-    
+SmartKayak* kayak;
 public:
-    PowerButton(int pin) : 
+    PowerButton(int pin, SmartKayak* kayak) : 
         ButtonDriver(pin), 
         currentMode(3), 
         greenLED(LOW_LED_PIN), 
         blueLED(MED_LED_PIN), 
-        redLED(HIGH_LED_PIN) {}
+        redLED(HIGH_LED_PIN),
+        kayak(kayak) {}
 
     void begin() {
         Serial.printf("PowerButton begin\n");
@@ -313,29 +314,153 @@ public:
         }
 
     }
-    void onPress() override {
-        Serial.printf("PowerButton onPress %d to ", currentMode);
-        currentMode = ((currentMode+1) % 3) + 1;
-        Serial.printf("%d\n", currentMode);
-        switch(currentMode) {
-            case 3: greenLED.on(); blueLED.off(); redLED.off(); break;
-            case 2: greenLED.off(); blueLED.on(); redLED.off(); break;
-            case 1: greenLED.off(); blueLED.off(); redLED.on(); break;
-        }
-    }
+    void onPress() override;
     void onRelease() override {
     
     }
 };
 
+// Константы для режимов мощности
+namespace MotorConstants {
+    constexpr int PWM_CHANNEL = 0;
+    constexpr int PWM_RESOLUTION = 8;  // 8 бит (0-255)
+    constexpr int PWM_FREQUENCY = 1000; // 1 кГц
+    
+    constexpr int POWER_LOW = 50;    // 50% мощности
+    constexpr int POWER_MEDIUM = 75;  // 75% мощности
+    constexpr int POWER_HIGH = 100;   // 100% мощности
+}
+
+enum MotorDirection {
+    FORWARD = 1,
+    REVERSE = -1
+};
+
+enum MotorPowerMode {
+    LOW_POWER = 1,
+    MEDIUM_POWER = 2,
+    HIGH_POWER = 3
+};
+
 class IMotorDriver {
+protected:
+    int currentDutyCycle;
+    int maxDutyCycle;
+    MotorDirection direction;
+    MotorPowerMode powerMode;
+    bool isEnabled;
+
 public:
+    IMotorDriver() : 
+        currentDutyCycle(0), 
+        maxDutyCycle(255),
+        direction(FORWARD),
+        powerMode(LOW_POWER),
+        isEnabled(false) {}
+        
     virtual void begin() = 0;
     virtual void setDutyCycle(int dutyCycle) = 0;
-    virtual void setDirection(int direction) = 0;
+    virtual void setDirection(MotorDirection dir) = 0;
+    
+    // Новые методы для универсальности
+    virtual void setPowerMode(MotorPowerMode mode) {
+        powerMode = mode;
+        updatePower();
+    }
+    
+    virtual void enable() { 
+        isEnabled = true; 
+        updatePower();
+    }
+    
+    virtual void disable() { 
+        isEnabled = false;
+        setDutyCycle(0);
+    }
+    
+    // Установка силы в процентах (0-100)
+    virtual void setForce(int forcePercent) {
+        if (!isEnabled) return;
+        
+        int dutyCycle = map(forcePercent, 0, 100, 0, maxDutyCycle);
+        setDutyCycle(dutyCycle);
+    }
+    
+    // Получение текущих параметров
+    MotorPowerMode getPowerMode() { return powerMode; }
+    MotorDirection getDirection() { return direction; }
+    int getDutyCycle() { return currentDutyCycle; }
+    bool isMotorEnabled() { return isEnabled; }
+
+protected:
+    virtual void updatePower() {
+        if (!isEnabled) {
+            setDutyCycle(0);
+            return;
+        }
+
+        int powerPercent;
+        switch (powerMode) {
+            case LOW_POWER:
+                powerPercent = MotorConstants::POWER_LOW;
+                break;
+            case MEDIUM_POWER:
+                powerPercent = MotorConstants::POWER_MEDIUM;
+                break;
+            case HIGH_POWER:
+                powerPercent = MotorConstants::POWER_HIGH;
+                break;
+            default:
+                powerPercent = 0;
+                break;
+        }
+        
+        setForce(powerPercent);
+    }
+};
+
+class PWMMotorDriver : public IMotorDriver {
+private:
+    const int motorPin;
+    const int reversePin;
+    const int pwmChannel;
+    const int pwmResolution;
+    const int pwmFrequency;
+
+public:
+    PWMMotorDriver(int mPin, int rPin) : 
+        motorPin(mPin),
+        reversePin(rPin),
+        pwmChannel(MotorConstants::PWM_CHANNEL),
+        pwmResolution(MotorConstants::PWM_RESOLUTION),
+        pwmFrequency(MotorConstants::PWM_FREQUENCY) {}
+
+    void begin() override {
+        pinMode(motorPin, OUTPUT);
+        pinMode(reversePin, OUTPUT);
+        
+        // Настройка ШИМ
+        ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
+        ledcAttachPin(motorPin, pwmChannel);
+        
+        // Начальные значения
+        setDirection(FORWARD);
+        setDutyCycle(0);
+    }
+
+    void setDutyCycle(int dutyCycle) override {
+        currentDutyCycle = constrain(dutyCycle, 0, maxDutyCycle);
+        ledcWrite(pwmChannel, currentDutyCycle);
+    }
+
+    void setDirection(MotorDirection dir) override {
+        direction = dir;
+        digitalWrite(reversePin, direction == REVERSE ? HIGH : LOW);
+    }
 };
 
 class SmartKayak {
+    friend class PowerButton;
 private:
     IIMU* imu;
     Madgwick filter;
@@ -346,15 +471,22 @@ private:
     SmartPaddle* paddles[4];
     int paddle_count;
     int force_mode = 3; // Starting from LOW mode
+    PWMMotorDriver motor;
+    PowerButton powerButton;
+
 
 public:
-    SmartKayak(IIMU* imu) : imu(imu), paddle_count(0), force_mode(3) {};
+    SmartKayak(IIMU* imu) : imu(imu), paddle_count(0), force_mode(3), motor(MOTOR_PIN, REVERSE_PIN), powerButton(BUTTON_PIN, this) {};
     void begin(int frequency=IMU_FREQUENCY)
     {
         if (imu){ if (!imu->begin()) Serial.println("IMU init failed");} else {
             Serial.println("IMU not initialized");
         }
         filter.begin(frequency);
+        powerButton.begin();
+        motor.begin();
+        motor.setPowerMode(LOW_POWER);
+        motor.enable();
     };
 
     void updateIMU() {
@@ -381,13 +513,22 @@ public:
 
 };
 
+void PowerButton::onPress() {
+    Serial.printf("PowerButton onPress %d to ", currentMode);
+    currentMode = ((currentMode+1) % 3) + 1;
+    Serial.printf("%d\n", currentMode);
+    switch(currentMode) {
+        case 3: greenLED.on(); blueLED.off(); redLED.off(); kayak->setForceMode(LOW_POWER); break;
+        case 2: greenLED.off(); blueLED.on(); redLED.off(); kayak->setForceMode(MEDIUM_POWER); break;
+        case 1: greenLED.off(); blueLED.off(); redLED.on(); kayak->setForceMode(HIGH_POWER); break;
+    }
+}
+
 ADXL345 accel;
 ITG3200 gyro;
 MechaQMC5883 qmc;
 
-IMUSensor imu(accel, gyro, qmc, 
-                       IMU_CALIB_ADDR,    // Адрес калибровки IMU
-                       CALIB_IMU_FLAG_ADDR); // Адрес флага калибровки IMU
+IMUSensor_GY85 imu(accel, gyro, qmc);
 SmartKayak kayak(&imu);
 
 
@@ -479,31 +620,12 @@ void imuTask(void *pvParameters) {
 }
 
 
-void buttonLEDTasks(void *pvParameters) {
+void bleSerialTasks(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BUTTON_FREQUENCY);
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_SERIAL_FREQUENCY);
 
     while(1) {
-        // Обновление состояния светодиодов в зависимости от режима
- /*
-        switch(kayak.getForceMode()) {
-            case 1: // LOW
-                greenLED.on();
-                blueLED.off();
-                redLED.off();
-                break;
-            case 2: // MEDIUM
-                greenLED.off();
-                blueLED.on();
-                redLED.off();
-                break;
-            case 3: // HIGH
-                greenLED.off();
-                blueLED.off();
-                redLED.on();
-                break;
-        }
- */       
+        paddle.getSerial()->updateJSON(true);
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -515,6 +637,7 @@ void buttonLEDTasks(void *pvParameters) {
 #define CMD_LOG_START "log_start"
 #define CMD_LOG_STOP "log_stop"
 #define CMD_IMU_CALIBRATE "calibrate_imu"
+#define CMD_PADDLE_IMU_CALIBRATE "calibrate_paddle_imu"
 // Обработка команд
 void processCommand(const char* cmd) {
     if(strcmp(cmd, CMD_HELP) == 0) {
@@ -524,6 +647,7 @@ void processCommand(const char* cmd) {
         Serial.println("log_start     - Start logging paddle data");
         Serial.println("log_stop      - Stop logging paddle data");
         Serial.println("calibrate_imu - Start IMU calibration");
+        Serial.println("calibrate_paddle_imu - Start Paddle IMU calibration");
         Serial.println("help          - Show this help");
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
@@ -554,6 +678,9 @@ void processCommand(const char* cmd) {
     } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
         imu.calibrate();
     }
+    else if(strcmp(cmd, CMD_PADDLE_IMU_CALIBRATE) == 0) {
+        paddle.calibrateIMU();
+    }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
     }
@@ -582,8 +709,6 @@ void serialCommandTask(void *pvParameters) {
     }
 }
 
-PowerButton powerButton(BUTTON_PIN);
-
 void setup() {
     Serial.begin(115200);
     while (!Serial) delay(10);
@@ -596,7 +721,6 @@ void setup() {
     kayak.begin(IMU_FREQUENCY);
     // Инициализация BLE клиента
     paddle.begin("KayakClient");
-    powerButton.begin();
 
     // Создание задач
     xTaskCreatePinnedToCore(
@@ -616,7 +740,7 @@ void setup() {
         NULL,
         1,
         NULL,
-        0  // Обработка на ядре 0
+        1  // Обработка на ядре 0
     );
     
     xTaskCreatePinnedToCore(
@@ -630,8 +754,8 @@ void setup() {
     );
  
     xTaskCreatePinnedToCore(
-        buttonLEDTasks,
-        "ButtonLED",
+        bleSerialTasks,
+        "BLESerial",
         4096,
         NULL,
         1,

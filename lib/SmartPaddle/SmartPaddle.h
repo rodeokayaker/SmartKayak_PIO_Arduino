@@ -4,7 +4,7 @@
 #include <MadgwickAHRS.h>
 #include <BLEServer.h>
 #include <BLEClient.h>
-
+#include "SP_BLESerial.h"
 #define SENSOR_QUEUE_SIZE 10
 
 
@@ -68,6 +68,7 @@ public:
     virtual void calibrate() = 0;
     virtual bool isCalibrationValid() = 0;
     virtual bool begin() = 0;
+    virtual void setLogStream(Stream* stream = nullptr) = 0;
     virtual ~IIMU() = default;
 };
 
@@ -113,6 +114,7 @@ public:
     }
 };
 
+class SP_BLESerial;
 
 // Class for smart paddle unified interface
 class SmartPaddle {
@@ -123,32 +125,50 @@ class SmartPaddle {
     bool isConnected;                  // Paddle connection status
     const int trustedDeviceAddr;
     bool run_madgwick;
+    SP_BLESerial* serial;
+    BLESerialMessageHandler* messageHandler;
     public:
-    SmartPaddle(int tdevAddr):specs(),KayakID(0),status(),isConnected(false),trustedDeviceAddr(tdevAddr),run_madgwick(false){}
+    SmartPaddle(int tdevAddr):
+        specs(),
+        KayakID(0),
+        status(),
+        isConnected(false),
+        trustedDeviceAddr(tdevAddr),
+        run_madgwick(false),
+        serial(nullptr),
+        messageHandler(nullptr){}
     virtual void begin(const char* deviceName)=0;
     virtual void setPaddleID(uint32_t id)=0;
     virtual void setFilterFrequency(uint32_t frequency)=0;
     virtual void setRunMadgwick(bool run){run_madgwick=run;}
     
-    virtual void updateIMU(IIMU* imu)=0;
-    virtual void updateLoads(ILoadCell* right, ILoadCell* left=0)=0;
+    virtual void updateIMU()=0;
+    virtual void updateLoads()=0;
     virtual void updateBLE()=0;
-    virtual void updateMadgwick(IMUData& imuData)=0;
+    virtual void updateMadgwick(IMUData* imuData)=0;
 
 
     virtual bool connect()=0;                   // Connect to paddle
     virtual void disconnect()=0;               // Disconnect paddle
     bool connected() {return isConnected;}
     virtual void startPairing()=0;
+    virtual SP_BLESerial* getSerial() {return serial;}
+    virtual void calibrateIMU()=0;
+    virtual ~SmartPaddle();
  
 };
 
 
 class SmartPaddleBLEServer : public SmartPaddle {
     friend class SPBLEServerCallbacks;
+    friend class SerialServer_MessageHandler;
 private:
     float calibrationFactorL;        // Calibration factor for left blade
     float calibrationFactorR;        // Calibration factor for right blade
+
+    IIMU* imu;
+    ILoadCell* loads[2];
+
     uint16_t FilterFrequency;
     Madgwick filter;
 
@@ -158,7 +178,6 @@ private:
     OverwritingQueue<BladeData> bladeQueue;
     OverwritingQueue<PaddleStatus> statusQueue;
 
-    int8_t log_imu_level;
     bool send_specs;
 
     BLEServer* pServer;
@@ -188,13 +207,6 @@ private:
 
     
 public:
-    void set_log_imu(int8_t level){
-        log_imu_level = level;
-    }
-
-    int8_t get_log_imu(){
-        return log_imu_level;
-    }
 
     SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency=98);
 
@@ -203,17 +215,22 @@ public:
     void setPaddleType(uint8_t type){specs.bladeType=type;}    
     void setFilterFrequency(uint32_t frequency){FilterFrequency=frequency;}
 
-    void updateIMU(IIMU* imu);
-    void updateLoads(ILoadCell* right, ILoadCell* left=0);
-    void updateBLE();
+    void setIMU(IIMU* imuSensor){imu=imuSensor;}
+    void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
+
+    void updateIMU() override;
+    void updateLoads() override;
+    void updateBLE() override;
 
     void startAdvertising(BLEAdvertising* advertising);
     void disconnect();               // Disconnect paddle
 
     void startPairing();
-    void updateMadgwick(IMUData& imuData) override;
+    void updateMadgwick(IMUData* imuData) override;
     void sendSpecs(){send_specs=true;}
     bool isPairing(){return is_pairing;}
+    BLEServer* getBLEServer() { return pServer; } // Для доступа к BLE серверу
+    void calibrateIMU() override;
 }; 
 
 // Класс для работы со SmartPaddle на стороне клиента (каяка)
@@ -237,6 +254,7 @@ private:
     bool is_pairing;
     bool do_connect;
     bool do_scan;
+
     
     
     // Очереди для хранения полученных данных
@@ -274,10 +292,10 @@ public:
     void setFilterFrequency(uint32_t frequency) override {} // Не используется на клиенте
     
     // Эти методы не используются на клиенте
-    void updateIMU(IIMU* imu) override {}
-    void updateLoads(ILoadCell* right, ILoadCell* left = 0) override {}
+    void updateIMU() override {}
+    void updateLoads() override {}
     void updateBLE() override;
-    void updateMadgwick(IMUData& imuData) override {}
+    void updateMadgwick(IMUData* imuData) override {}
     
     bool connect() override;
     void disconnect() override;
@@ -296,7 +314,10 @@ public:
     void startScan(uint32_t duration = 5);
     void stopScan();
     std::vector<BLEAdvertisedDevice> getScannedDevices();
+    BLEClient* getBLEClient() { return pClient; } // Для доступа к BLE клиенту
+    void calibrateIMU() override;
 };
 
+extern std::map<void*, SmartPaddle*> PaddleMap;
 #endif
 
