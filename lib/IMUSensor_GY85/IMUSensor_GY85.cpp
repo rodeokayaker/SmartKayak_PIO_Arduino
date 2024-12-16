@@ -1,122 +1,101 @@
 /**
  * @file IMUSensor_GY85.cpp
  * @brief Реализация библиотеки для работы с IMU модулем GY-85
- * 
- * @author Ivan Rybnikov
- * @copyright Copyright (c) 2024
  */
 
 #include "IMUSensor_GY85.h"
 #include <Preferences.h>
-// Конструктор с инициализацией всех полей
-IMUSensor_GY85::IMUSensor_GY85(ADXL345& a, ITG3200& g, MechaQMC5883& m, Stream* logStream) 
-    : accel(a), gyro(g), mag(m), calibValid(false), log_imu(0), logStream(logStream) {
-    if(!logStream) {
-        logStream = &Serial;
-    }
-}
 
-IMUCalibData& IMUSensor_GY85::getCalibrationData() {
-    return calibData;
-}
+//-----------------------------------------------------------------------------
+// Конструктор и инициализация
+//-----------------------------------------------------------------------------
 
-void IMUSensor_GY85::resetCalibration() {
-    calibValid = false;
-    Preferences prefs;
-    prefs.begin("imu", false);
-    prefs.clear();
-    prefs.end();
-}
-
-void IMUSensor_GY85::setDefaultCalibration() {
-    calibValid = false;
-    calibData.magOffset[0] = 0;
-    calibData.magOffset[1] = 0;
-    calibData.magOffset[2] = 0;
-    calibData.magScale[0] = 1.0f;
-    calibData.magScale[1] = 1.0f;
-    calibData.magScale[2] = 1.0f;
-    calibData.gyroOffset[0] = 0;
-    calibData.gyroOffset[1] = 0;
-    calibData.gyroOffset[2] = 0;
-    calibData.gyroScale[0] = 0.069565f;
-    calibData.gyroScale[1] = 0.069565f;
-    calibData.gyroScale[2] = 0.069565f;
-    calibData.accelOffset[0] = 0;
-    calibData.accelOffset[1] = 0;
-    calibData.accelOffset[2] = 0;
-    calibData.accelScale[0] = 0.039f;
-    calibData.accelScale[1] = 0.039f;
-    calibData.accelScale[2] = 0.039f;
-}
-
-void IMUSensor_GY85::saveCalibrationData() {
-    Preferences prefs;
-    prefs.begin("imu", false);
-    prefs.putBytes("calibData", (byte*)&calibData, sizeof(IMUCalibData));
-    prefs.end();
-}
-
-bool IMUSensor_GY85::readCalibrationData() {
-    Preferences prefs;
-    prefs.begin("imu", false);
-    if(prefs.isKey("calibData")) {
-        prefs.getBytes("calibData", (byte*)&calibData, sizeof(IMUCalibData));
-        calibValid = true;
-        prefs.end();
-        return true;
-    } else {
-        setDefaultCalibration();
-        calibValid = false;
-        prefs.end();
-        return false;
-    }
+IMUSensor_GY85::IMUSensor_GY85(const char* prefs_Name, Stream* logStream) : 
+    accel(), 
+    gyro(), 
+    mag(), 
+    calibValid(false), 
+    log_imu(0), 
+    logStream(logStream ? logStream : &Serial), 
+    prefsName(prefs_Name),
+    imuFrequency(GY85_IMU_DEFAULT_FREQUENCY) {
+    
+    madgwick.begin(imuFrequency);
 }
 
 bool IMUSensor_GY85::begin() {
+    // Проверка подключения датчиков
     if(!accel.testConnection() || !gyro.testConnection()) {
         logStream->println("IMU initialization failed!");
         return false;
     }
     
+    // Инициализация датчиков
     accel.initialize();
     gyro.initialize();
     mag.init();
+    madgwick.begin(imuFrequency);
     
     // Установка базовых параметров
     accel.setRange(ADXL345_RANGE_2G);
     gyro.setFullScaleRange(ITG3200_FULLSCALE_2000);
     gyro.setDLPFBandwidth(ITG3200_DLPF_BW_98);
 
+    // Загрузка калибровки
     readCalibrationData();        
     return true;
 }
 
+//-----------------------------------------------------------------------------
+// Методы калибровки
+//-----------------------------------------------------------------------------
+
+void IMUSensor_GY85::setDefaultCalibration() {
+    calibValid = false;
+    
+    // Акселерометр
+    for(int i = 0; i < 3; i++) {
+        calibData.accelOffset[i] = 0;
+        calibData.accelScale[i] = 0.039f;  // Для диапазона ±2g
+    }
+    
+    // Гироскоп
+    for(int i = 0; i < 3; i++) {
+        calibData.gyroOffset[i] = 0;
+        calibData.gyroScale[i] = 0.069565f;  // Для диапазона ±2000°/s
+    }
+    
+    // Магнитометр
+    for(int i = 0; i < 3; i++) {
+        calibData.magOffset[i] = 0;
+        calibData.magScale[i] = 1.0f;
+    }
+}
+
 void IMUSensor_GY85::calibrate() {
-    logStream->println("Starting IMU calibration...");
+    logStream->printf("Starting IMU '%s' calibration...\n", prefsName.c_str());
     logStream->println("Keep device still for initial calibration");
+    delay(1000);
 
     setDefaultCalibration();
-    
+    // Калибровка акселерометра и гироскопа
+    logStream->println("Calibrating accelerometer and gyroscope...");
     int32_t ax_sum = 0, ay_sum = 0, az_sum = 0;
-    const int samples = 1000;
     int32_t gx_sum = 0, gy_sum = 0, gz_sum = 0;
+    const int samples = 500;
     
     for(int i = 0; i < samples; i++) {
         int16_t ax, ay, az;
         accel.getAcceleration(&ax, &ay, &az);
-        ax_sum += ax;
-        ay_sum += ay;
-        az_sum += az;
+        ax_sum += ax; ay_sum += ay; az_sum += az;
 
         int16_t gx, gy, gz;
         gyro.getRotation(&gx, &gy, &gz);
-        gx_sum += gx;
-        gy_sum += gy;
-        gz_sum += gz;
-
+        gx_sum += gx; gy_sum += gy; gz_sum += gz;
         delay(10);
     }
+
+    logStream->println("Calibrate gyroscope done");
     
     // Вычисление и установка смещений акселерометра
     int8_t accel_offset[3];
@@ -126,8 +105,9 @@ void IMUSensor_GY85::calibrate() {
     
     calibData.gyroOffset[0] = -gx_sum / samples;
     calibData.gyroOffset[1] = -gy_sum / samples;
-    calibData.gyroOffset[2] = -(gz_sum / samples);
+    calibData.gyroOffset[2] = -gz_sum / samples;
     
+    // Калибровка магнитометра
     logStream->println("Rotate device in all directions for magnetometer calibration");
     int16_t mx_min = 32767, my_min = 32767, mz_min = 32767;
     int16_t mx_max = -32768, my_max = -32768, mz_max = -32768;
@@ -162,6 +142,10 @@ void IMUSensor_GY85::calibrate() {
     logStream->println("Calibration complete!");
 }
 
+//-----------------------------------------------------------------------------
+// Работа с данными датчиков
+//-----------------------------------------------------------------------------
+
 void IMUSensor_GY85::getData(IMUData& data) {
     #if 0
     data.ax = (accel.getAccelerationX() + calibData.accelOffset[0]) * calibData.accelScale[0];
@@ -171,51 +155,111 @@ void IMUSensor_GY85::getData(IMUData& data) {
     data.gy = (gyro.getRotationY() + calibData.gyroOffset[1]) * calibData.gyroScale[1];
     data.gz = (gyro.getRotationZ() + calibData.gyroOffset[2]) * calibData.gyroScale[2];
     #else
+    // Чтение акселерометра
     data.ax = accel.getAccelerationX();
     data.ay = accel.getAccelerationY();
     data.az = accel.getAccelerationZ();
 
+    // Чтение и калибровка гироскопа
     data.gx = (gyro.getRotationX() + calibData.gyroOffset[0]) * calibData.gyroScale[0];
     data.gy = (gyro.getRotationY() + calibData.gyroOffset[1]) * calibData.gyroScale[1];
     data.gz = (gyro.getRotationZ() + calibData.gyroOffset[2]) * calibData.gyroScale[2];
 
     #endif
-
+    // Чтение и калибровка магнитометра
     int mx, my, mz;
     mag.read(&mx, &my, &mz);
     data.mx = ((float)mx + calibData.magOffset[0]) * calibData.magScale[0];
     data.my = ((float)my + calibData.magOffset[1]) * calibData.magScale[1];
     data.mz = ((float)mz + calibData.magOffset[2]) * calibData.magScale[2];
 
+    // Получение кватерниона ориентации
+    madgwick.getQuaternion(&data.q0);
+    
+    // Логирование если включено
     if (log_imu) {
-        logStream->print("Accel: ");
-        logStream->print(data.ax);
-        logStream->print(", ");
-        logStream->print(data.ay);
-        logStream->print(", ");
-        logStream->println(data.az);
-        logStream->print("Gyro: ");
-        logStream->print(data.gx);
-        logStream->print(", ");
-        logStream->print(data.gy);
-        logStream->print(", ");
-        logStream->println(data.gz);
-        logStream->print("Mag: ");
-        logStream->print(data.mx);
-        logStream->print(", ");
-        logStream->print(data.my);
-        logStream->print(", ");
-        logStream->println(data.mz);
+        logStream->printf("Accel: %.2f, %.2f, %.2f\n", data.ax, data.ay, data.az);
+        logStream->printf("Gyro: %.2f, %.2f, %.2f\n", data.gx, data.gy, data.gz);
+        logStream->printf("Mag: %.2f, %.2f, %.2f\n", data.mx, data.my, data.mz);
     }
     
     data.timestamp = millis();
 }
+
+void IMUSensor_GY85::update() {
+    getData(currentData);
+    madgwick.update(
+        currentData.gx, currentData.gy, currentData.gz,
+        currentData.ax, currentData.ay, currentData.az,
+        currentData.mx, currentData.my, currentData.mz
+    );
+}
+
+//-----------------------------------------------------------------------------
+// Сохранение/загрузка калибровки
+//-----------------------------------------------------------------------------
+
+void IMUSensor_GY85::saveCalibrationData() {
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), false);
+    prefs.putBytes("calibData", &calibData, sizeof(IMUCalibData));
+    prefs.end();
+}
+
+bool IMUSensor_GY85::readCalibrationData() {
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), true);
+    if(prefs.isKey("calibData")) {
+        prefs.getBytes("calibData", &calibData, sizeof(IMUCalibData));
+        calibValid = true;
+        prefs.end();
+        return true;
+    }
+    setDefaultCalibration();
+    prefs.end();
+    return false;
+}
+
+//-----------------------------------------------------------------------------
+// Вспомогательные методы
+//-----------------------------------------------------------------------------
 
 IMUData IMUSensor_GY85::getData() {
     getData(currentData);
     return currentData;
 }
 
+OrientationData IMUSensor_GY85::getOrientation() {
+    madgwick.getQuaternion(&currentOrientation.q0);
+    currentOrientation.timestamp = millis();
+    return currentOrientation;
+}
+
+void IMUSensor_GY85::setFrequency(int16_t frequency) {
+    imuFrequency = frequency;
+    madgwick.begin(imuFrequency);
+}
+
+int16_t IMUSensor_GY85::getFrequency() {
+    return imuFrequency;
+}
+
+void IMUSensor_GY85::setLogLevel(int8_t level) {
+    log_imu = level;
+}
+
+void IMUSensor_GY85::setLogStream(Stream* stream) {
+    logStream = stream ? stream : &Serial;
+}
+
 bool IMUSensor_GY85::isCalibrationValid() {
     return calibValid;
+}
+
+IMUCalibData& IMUSensor_GY85::getCalibrationData() {
+    return calibData;
+}
+
+IMUSensor_GY85::~IMUSensor_GY85() {
+    // Деструктор
 }

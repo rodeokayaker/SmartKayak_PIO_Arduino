@@ -1,6 +1,6 @@
 #include "SmartPaddle.h"
-#include "IMUSensor_GY85.h"
-#include <EEPROM.h>
+//#include "IMUSensor_GY85.h"
+#include "IMUSensor_GY87.h"
 #include "HX711.h"
 #include "Wire.h"
 #include "esp_log.h"
@@ -20,21 +20,7 @@ constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = 8;
 constexpr int I2C_SCL = 9;
-
-// Адреса в EEPROM
-
-constexpr int PADDLE_ID_ADDR = 0;
-constexpr int CALIB_LOAD_FLAG_ADDR = 4;
-constexpr int CALIB_L_ADDR = 8;
-constexpr int CALIB_R_ADDR = 12;
-constexpr int CALIB_IMU_FLAG_ADDR = 16;
-constexpr int IMU_CALIB_ADDR = 20;
-constexpr int TRUSTED_DEV_ADDR = 128;
-
-// Размер EEPROM
-constexpr int EEPROM_SIZE = 512;
-
-constexpr byte VALID_CALIB_FLAG = 0x42;
+constexpr int INTERRUPT_PIN = 0;
 
 // FreeRTOS определения
 #define SENSOR_STACK_SIZE 4096
@@ -44,7 +30,7 @@ constexpr byte VALID_CALIB_FLAG = 0x42;
 #define BLE_FREQUENCY 98
 #define BLE_SERIAL_FREQUENCY 10
 #define BLE_STACK_SIZE 4096
-
+#define IMU_INTERRUPT_PIN 23
 static bool log_imu = false;
 static bool log_load = false;
 
@@ -55,25 +41,16 @@ TaskHandle_t serialTaskHandle = NULL;
 
 
 // Глобальные объекты
-HX711 scaleR, scaleL;
-ADXL345 accel;
-ITG3200 gyro;
-MechaQMC5883 qmc;
-LoadCellHX711 leftCell(scaleL, CALIB_L_ADDR, CALIB_LOAD_FLAG_ADDR);
-LoadCellHX711 rightCell(scaleR, CALIB_R_ADDR, CALIB_LOAD_FLAG_ADDR);
-
-SmartPaddleBLEServer paddle(IMU_FREQUENCY); //  работаем как сервер
-
-IMUSensor_GY85 imuSensor(accel, gyro, qmc, 
-                       IMU_CALIB_ADDR,    // Адрес калибровки IMU
-                       CALIB_IMU_FLAG_ADDR); // Адрес флага калибровки IMU
+LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
+LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
+SmartPaddleBLEServer paddle("SmartPaddle",IMU_FREQUENCY); //  работаем как сервер
+IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN"); // Адрес флага калибровки IMU
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
     uint32_t chipId = ESP.getEfuseMac();
     return chipId ^ 0xDEADBEEF; // XOR с константой для уникальности
 }
-
 
 static uint32_t last_load_time = millis();
 static float frequency_load = 10;
@@ -87,8 +64,8 @@ void loadCellTask(void *pvParameters) {
     while(1) {
         int32_t time_diff = millis()-last_load_time;
         last_load_time = millis();
-        frequency_load = 100.0/(99.0/frequency_load+time_diff/1000.0);
-//        Serial.printf("Load cell callback time = %d, frequency = %f\n", time_diff, frequency_load);
+/*        frequency_load = 100.0/(99.0/frequency_load+time_diff/1000.0);
+        Serial.printf("Load cell callback time = %d, frequency = %f\n", time_diff, frequency_load);*/
         if (paddle.connected()) {
             paddle.updateLoads();
         }
@@ -104,14 +81,14 @@ static float frequency_imu = 98;
 void imuTask(void *pvParameters) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/IMU_FREQUENCY);
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/imuSensor.getFrequency());
     
     while(1) {
         int32_t time_diff = millis()-last_imu_time;
         last_imu_time = millis();
-        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
-//        Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);
-
+/*        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
+        Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);*/
+        imuSensor.update();
         if (paddle.connected()) {
             paddle.updateIMU();
         }
@@ -252,7 +229,7 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_LOG_IMU) == 0)  {
         log_imu = true;
-        imuSensor.setLogLevel(1);
+        imuSensor.setLogLevel(2);
     }
     else if(strcmp(cmd, CMD_LOG_LOAD) == 0)  {
         log_load = true;
@@ -276,6 +253,7 @@ void serialCommandTask(void *pvParameters) {
     while(1) {
          if(Serial.available()) {
             char c = Serial.read();
+            Serial.print(c);
             
             if(c == '\n' || c == '\r'|| c == ' '|| c == '!') {
                 if(cmdIndex > 0) {
@@ -331,14 +309,16 @@ void setup() {
     delay(1000);
     Wire.begin(I2C_SDA, I2C_SCL);
     
+    
     Serial.println("\nSmart Paddle Initializing...");
     
     // Инициализация тензодатчиков
-    scaleR.begin(RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
-    scaleL.begin(LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
-    
+    leftCell.begin();
+    rightCell.begin();
+
     // Инициализация IMU
 
+    imuSensor.setInterruptPin(INTERRUPT_PIN);
     imuSensor.begin();
 
     // Инициализация Весла

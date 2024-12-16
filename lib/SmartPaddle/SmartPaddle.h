@@ -17,10 +17,16 @@ namespace SmartPaddleUUID {
 
 }
 
-namespace SmartPaddleConstants{
-    const float CALIBRATION_FACTOR_L = 106.165;
-    const float CALIBRATION_FACTOR_R = 98.777;
-}
+enum PaddleType{
+    ONE_BLADE,
+    TWO_BLADES
+};
+
+enum BladeSideType{
+    RIGHT_BLADE,
+    LEFT_BLADE,
+    ALL_BLADES
+};
 
 struct loadData {
     int32_t forceL;
@@ -42,14 +48,12 @@ struct OrientationData {
 };
 
 struct BladeData {
-    uint8_t bladeSide;
+    BladeSideType bladeSide;
     float quaternion[4];
     float force;
     uint32_t timestamp;
 };
 
-#define TWO_BLADES 1
-#define ONE_BLADE 0
 
 // Интерфейсы для датчиков
 class ILoadCell {
@@ -58,24 +62,26 @@ public:
     virtual void calibrate() = 0;
     virtual bool isCalibrationValid() = 0;
     virtual bool begin() = 0;
-    virtual ~ILoadCell() = default;
+    virtual void setLogStream(Stream* stream = &Serial) = 0;
+    virtual ~ILoadCell() = default; // Деструктор по умолчанию
 };
 
 class IIMU {
 public:
+    virtual bool begin() = 0;
     virtual IMUData getData() = 0;
+    virtual OrientationData getOrientation() = 0;
     virtual void getData(IMUData& data) = 0;
     virtual void calibrate() = 0;
     virtual bool isCalibrationValid() = 0;
-    virtual bool begin() = 0;
-    virtual void setLogStream(Stream* stream = nullptr) = 0;
+    virtual void setLogStream(Stream* stream = &Serial) = 0;
     virtual ~IIMU() = default;
 };
 
 
 struct PaddleSpecs{
     uint32_t PaddleID;                // Paddle ID
-    uint8_t bladeType;                // Blade type (TWO_BLADES or ONE_BLADE)
+    PaddleType paddleType;                // Blade type (TWO_BLADES or ONE_BLADE)
     float leftFeatheredQuaternion[4];     // Feathered orientation
     float rightFeatheredQuaternion[4];     // Feathered orientation
 };
@@ -114,6 +120,7 @@ public:
     }
 };
 
+
 class SP_BLESerial;
 
 // Class for smart paddle unified interface
@@ -123,17 +130,15 @@ class SmartPaddle {
     uint32_t KayakID;                // Kayak ID
     PaddleStatus status;
     bool isConnected;                  // Paddle connection status
-    const int trustedDeviceAddr;
     bool run_madgwick;
     SP_BLESerial* serial;
     BLESerialMessageHandler* messageHandler;
     public:
-    SmartPaddle(int tdevAddr):
+    SmartPaddle():
         specs(),
         KayakID(0),
         status(),
         isConnected(false),
-        trustedDeviceAddr(tdevAddr),
         run_madgwick(false),
         serial(nullptr),
         messageHandler(nullptr){}
@@ -145,7 +150,6 @@ class SmartPaddle {
     virtual void updateIMU()=0;
     virtual void updateLoads()=0;
     virtual void updateBLE()=0;
-    virtual void updateMadgwick(IMUData* imuData)=0;
 
 
     virtual bool connect()=0;                   // Connect to paddle
@@ -154,6 +158,7 @@ class SmartPaddle {
     virtual void startPairing()=0;
     virtual SP_BLESerial* getSerial() {return serial;}
     virtual void calibrateIMU()=0;
+    virtual void calibrateLoads(BladeSideType blade_side)=0;
     virtual ~SmartPaddle();
  
 };
@@ -163,14 +168,13 @@ class SmartPaddleBLEServer : public SmartPaddle {
     friend class SPBLEServerCallbacks;
     friend class SerialServer_MessageHandler;
 private:
-    float calibrationFactorL;        // Calibration factor for left blade
-    float calibrationFactorR;        // Calibration factor for right blade
-
     IIMU* imu;
     ILoadCell* loads[2];
 
     uint16_t FilterFrequency;
-    Madgwick filter;
+
+    std::string prefsName;
+    Stream* logStream;
 
     OverwritingQueue<loadData> loadsensorQueue;
     OverwritingQueue<OrientationData> orientationQueue;       
@@ -208,11 +212,11 @@ private:
     
 public:
 
-    SmartPaddleBLEServer(int tdevAddr,uint16_t filterFrequency=98);
+    SmartPaddleBLEServer(const char* prefs_Name,uint16_t filterFrequency=98);
 
     void begin(const char* deviceName);
     void setPaddleID(uint32_t id){specs.PaddleID=id;}
-    void setPaddleType(uint8_t type){specs.bladeType=type;}    
+    void setPaddleType(PaddleType type){specs.paddleType=type;}    
     void setFilterFrequency(uint32_t frequency){FilterFrequency=frequency;}
 
     void setIMU(IIMU* imuSensor){imu=imuSensor;}
@@ -226,11 +230,12 @@ public:
     void disconnect();               // Disconnect paddle
 
     void startPairing();
-    void updateMadgwick(IMUData* imuData) override;
     void sendSpecs(){send_specs=true;}
     bool isPairing(){return is_pairing;}
     BLEServer* getBLEServer() { return pServer; } // Для доступа к BLE серверу
     void calibrateIMU() override;
+    void calibrateLoads(BladeSideType blade_side) override;
+    void setLogStream(Stream* stream=&Serial);
 }; 
 
 // Класс для работы со SmartPaddle на стороне клиента (каяка)
@@ -255,7 +260,7 @@ private:
     bool do_connect;
     bool do_scan;
 
-    
+    std::string prefsName;
     
     // Очереди для хранения полученных данных
 
@@ -266,6 +271,11 @@ private:
     static OverwritingQueue<IMUData> imuQueue;
     static OverwritingQueue<BladeData> bladeQueue;
     static OverwritingQueue<PaddleStatus> statusQueue;
+
+    uint32_t last_orientation_ts;
+    uint32_t last_blade_ts;
+    uint32_t last_imu_ts;
+    uint32_t last_loads_ts;
     
     // Колбэки для получения нотификаций
     //TODO: для подключения нескольких весел, с этим нужно будет поработать
@@ -284,7 +294,7 @@ private:
     bool setupCharacteristics();
     
 public:
-    SmartPaddleBLEClient(int tdevAddr);
+    SmartPaddleBLEClient(const char* prefs_Name);
     
     // Реализация интерфейса SmartPaddle
     void begin(const char* deviceName) override;
@@ -295,7 +305,6 @@ public:
     void updateIMU() override {}
     void updateLoads() override {}
     void updateBLE() override;
-    void updateMadgwick(IMUData* imuData) override {}
     
     bool connect() override;
     void disconnect() override;
@@ -316,6 +325,7 @@ public:
     std::vector<BLEAdvertisedDevice> getScannedDevices();
     BLEClient* getBLEClient() { return pClient; } // Для доступа к BLE клиенту
     void calibrateIMU() override;
+    void calibrateLoads(BladeSideType blade_side) override;
 };
 
 extern std::map<void*, SmartPaddle*> PaddleMap;

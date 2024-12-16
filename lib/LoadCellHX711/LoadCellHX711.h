@@ -15,7 +15,6 @@
 #define LoadCellHX711_h
 
 #include "SmartPaddle.h"
-#include <EEPROM.h>
 #include <HX711.h>
 
 /**
@@ -31,12 +30,15 @@ struct LoadCellCalibData {
  */
 class LoadCellHX711 : public ILoadCell {
 private:
-    HX711& scale;                 // Объект HX711
+    HX711 scale;                 // Объект HX711
     LoadCellCalibData calibData;  // Калибровочные данные
     bool calibValid;              // Флаг валидности калибровки
-    const int eepromAddr;         // Адрес в EEPROM для калибровки
-    const int calibFlagAddr;      // Адрес в EEPROM для флага калибровки
     int8_t log_level;            // Уровень логирования
+    Stream* logStream;            // Поток для логирования
+    uint8_t doutPin;
+    uint8_t sclkPin;
+
+    std::string prefsName;
     
     // Сохранение/загрузка калибровки
     void saveCalibrationData();
@@ -50,7 +52,7 @@ public:
      * @param eepromAddr Адрес в EEPROM для хранения калибровки
      * @param calibFlagAddr Адрес в EEPROM для флага калибровки
      */
-    LoadCellHX711(HX711& scale, int eepromAddr, int calibFlagAddr);
+    LoadCellHX711(const char* prefs_Name, uint8_t dout_pin, uint8_t sclk_pin);
     
     // Реализация интерфейса ILoadCell
     bool begin() override;
@@ -62,6 +64,9 @@ public:
     void setLogLevel(int8_t level) { log_level = level; }
     LoadCellCalibData& getCalibrationData() { return calibData; }
     void tare();  // Установка нуля
+
+    virtual void setLogStream(Stream* stream=&Serial) override;
+    void setPins(uint8_t dout_pin, uint8_t sclk_pin) { doutPin = dout_pin; sclkPin = sclk_pin; }
 };
 
 #endif 

@@ -7,26 +7,31 @@
  */
 
 #include "LoadCellHX711.h"
+#include <Preferences.h>
 
 constexpr byte VALID_CALIB_FLAG = 0x42;
 
-LoadCellHX711::LoadCellHX711(HX711& scale, int eepromAddr, int calibFlagAddr)
-    : scale(scale), 
-      eepromAddr(eepromAddr),
-      calibFlagAddr(calibFlagAddr),
+LoadCellHX711::LoadCellHX711(const char* prefs_Name, uint8_t dout_pin, uint8_t sclk_pin)
+    : scale(),
       calibValid(false),
-      log_level(0) {
+      log_level(0),
+      prefsName(prefs_Name),
+      doutPin(dout_pin),
+      sclkPin(sclk_pin),
+      logStream(&Serial) {
     calibData.calibrationFactor = 1.0f;
     calibData.offset = 0.0f;
 }
 
 bool LoadCellHX711::begin() {
+
+    scale.begin(doutPin, sclkPin);
+
     if(!scale.wait_ready_timeout(1000)) {
-        Serial.println("HX711 not found!");
+        logStream->println("HX711 not found!");
         return false;
     }
     
-    // Чтение калибровки из EEPROM
     if(readCalibrationData()) {
         scale.set_scale(calibData.calibrationFactor);
         scale.set_offset(calibData.offset);
@@ -40,21 +45,21 @@ bool LoadCellHX711::begin() {
 }
 
 void LoadCellHX711::saveCalibrationData() {
-    EEPROM.begin(512);
-    EEPROM.write(calibFlagAddr, VALID_CALIB_FLAG);
-    EEPROM.put(eepromAddr, calibData);
-    EEPROM.commit();
-    EEPROM.end();
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), false);
+    prefs.putBytes("calibData", &calibData, sizeof(LoadCellCalibData));
+    prefs.end();
 }
 
 bool LoadCellHX711::readCalibrationData() {
-    EEPROM.begin(512);
-    if(EEPROM.read(calibFlagAddr) == VALID_CALIB_FLAG) {
-        EEPROM.get(eepromAddr, calibData);
-        EEPROM.end();
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), true);
+    if(prefs.isKey(prefsName.c_str())) {
+        prefs.getBytes("calibData", &calibData, sizeof(LoadCellCalibData));
+        prefs.end();
         return true;
     }
-    EEPROM.end();
+    prefs.end();
     return false;
 }
 
@@ -69,23 +74,31 @@ float LoadCellHX711::getForce() {
 }
 
 void LoadCellHX711::calibrate() {
+    logStream->printf("Calibrating load cell \'%s\'\n", prefsName.c_str());
+    logStream->println("Remove all weight");
     scale.set_scale();
-    tare();
+    delay(2000);
+    logStream->println("Tare...");  
+    scale.tare();
+    logStream->println("Tare done");
     
-    Serial.println("Place 1kg weight and wait...");
-    delay(5000);
-    
-    float reading = scale.get_units(10);
-    calibData.calibrationFactor = reading / 1000.0f; // 1kg = 1000g
+    logStream->println("Place 1kg weight and wait...");
+    delay(2000);
+
+    logStream->println("Calibrate scale...");
+
+    calibData.calibrationFactor = 1000.0f / scale.get_units(20);
+    scale.set_scale(calibData.calibrationFactor);
+
+    logStream->println("Calibrate scale done");
     calibData.offset = scale.get_offset();
     
-    scale.set_scale(calibData.calibrationFactor);
     saveCalibrationData();
     calibValid = true;
     
     if(log_level > 0) {
-        Serial.printf("Calibration factor: %.3f\n", calibData.calibrationFactor);
-        Serial.printf("Offset: %.1f\n", calibData.offset);
+        logStream->printf("Calibration factor: %.3f\n", calibData.calibrationFactor);
+        logStream->printf("Offset: %.1f\n", calibData.offset);
     }
 }
 
@@ -100,3 +113,7 @@ void LoadCellHX711::tare() {
 bool LoadCellHX711::isCalibrationValid() {
     return calibValid;
 } 
+
+void LoadCellHX711::setLogStream(Stream* stream) {
+    logStream = stream;
+}

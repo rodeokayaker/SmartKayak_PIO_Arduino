@@ -10,38 +10,50 @@
 #define IMUSensor_GY87_h
 
 #include "SmartPaddle.h"
-#include <EEPROM.h>
 #include <Wire.h>
+#include <MPU6050_6Axis_MotionApps20.h>
+//#include <QMC5883LCompass.h>
+#include <MechaQMC5883.h>
 #include <iarduino_Pressure_BMP.h>
-#include "MPU6050_6Axis_MotionApps20.h"
-#include <QMC5883LCompass.h>
+#include <MadgwickAHRS.h>
+
+#define GY87_IMU_DEFAULT_FREQUENCY 100
 
 struct IMUCalibData {
-    // MPU6050
-    int16_t accelOffset[3];
-    int16_t gyroOffset[3];
+    // Калибровочные данные акселерометра
+    int16_t accelOffset[3];  // Смещения нуля по трем осям
+    float accelScale[3];     // Масштабирующие коэффициенты для приведения к м/с²
     
-    // QMC5883L
-    float magOffset[3];
-    float magScale[3];
+    // Калибровочные данные гироскопа
+    int16_t gyroOffset[3];   // Смещения нуля по трем осям
+    float gyroScale[3];      // Масштабирующие коэффициенты для приведения к рад/с
+    
+    // Калибровочные данные магнитометра
+    int16_t magOffset[3];    // Смещения нуля по трем осям
+    float magScale[3];       // Масштабирующие коэффициенты для нормализации
 };
 
-class IMUSensor : public IIMU {
+class IMUSensor_GY87 : public IIMU {
 private:
-    MPU6050 mpu;                  // MPU6050 (акселерометр + гироскоп)
-    QMC5883LCompass compass;      // Магнитометр
+    MPU6050_6Axis_MotionApps20 mpu;                  // MPU6050 (акселерометр + гироскоп)
+//    QMC5883LCompass compass;      // Магнитометр
     iarduino_Pressure_BMP baro;   // Барометр
+    MechaQMC5883 mag;           ///< Магнитометр
     
     IMUData currentData;          // Текущие данные с датчиков
     bool calibValid;              // Флаг валидности калибровки
     IMUCalibData calibData;       // Калибровочные данные
-    const int imuCalibAddr;       // Адрес в EEPROM для калибровки
-    const int imuValidFlagAddr;   // Адрес в EEPROM для флага валидности
     int8_t log_imu;              // Уровень логирования
-    
+    Stream* logStream;            // Поток для логирования
+    std::string prefsName;         // Имя раздела в Preferences для хранения калибровки
+    int16_t imuFrequency;          // Частота обновления IMU
+    Madgwick madgwick;
+    int interruptPin;
+
+    OrientationData currentOrientation; ///< Текущая ориентация
+
     // DMP переменные
     bool dmpReady;
-    uint8_t mpuIntStatus;
     uint8_t devStatus;
     uint16_t packetSize;
     uint16_t fifoCount;
@@ -50,8 +62,7 @@ private:
     // Переменные ориентации
     Quaternion q;
     VectorFloat gravity;
-    float ypr[3];
-    
+
     // Дополнительные данные
     float pressure;    // Давление в Па
     float temperature; // Температура в °C
@@ -63,7 +74,7 @@ private:
     float convertRawCompass(int mag);
     
 public:
-    IMUSensor(int imuAddr, int imuValidFlagAddr);
+    IMUSensor_GY87(const char* prefsName, Stream* logStream = &Serial);
     
     // Методы для работы с калибровкой
     IMUCalibData& getCalibrationData();
@@ -71,6 +82,7 @@ public:
     void setDefaultCalibration();
     void saveCalibrationData();
     bool readCalibrationData();
+    void setInterruptPin(int pin) {interruptPin = pin;};
     
     // Реализация интерфейса IIMU
     bool begin() override;
@@ -88,6 +100,16 @@ public:
     // Получение ориентации
     void getYawPitchRoll(float* ypr);
     void getQuaternion(float* quat);
+    ~IMUSensor_GY87();
+    void update();
+    OrientationData getOrientation() override;
+    int16_t getFrequency();
+    void setFrequency(int16_t frequency);
+
+    void setLogStream(Stream* stream = &Serial) override {logStream = stream;};
+
+    void getSmoothedReadings(int16_t* readings, int samples = 1000);
+    bool isStable(int16_t* readings1, int16_t* readings2, int tolerance);
 };
 
 #endif

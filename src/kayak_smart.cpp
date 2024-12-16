@@ -1,5 +1,4 @@
 #include "SmartPaddle.h"
-#include <EEPROM.h>
 #include "Wire.h"
 #include "esp_log.h"
 #include "IMUSensor_GY85.h"
@@ -30,23 +29,24 @@ const int FORCE_THRESHOLD = 20; // минимальный уровень чув�
 const int MAX_FORCE = 100; // максимальное усилие на весле
 int PWM1_DutyCycle = 0;
 
-// Адреса в EEPROM
-constexpr int CALIB_IMU_FLAG_ADDR = 16;
-constexpr int IMU_CALIB_ADDR = 20;
-constexpr int TRUSTED_DEV_ADDR = 128;
 
 
 // FreeRTOS определения
 #define BLE_STACK_SIZE 4096
 #define PROCESS_STACK_SIZE 4096
-#define PROCESS_FREQUENCY 98  // Частота обработки данных в Гц
-#define IMU_FREQUENCY 98
+#define PROCESS_FREQUENCY 100  // Частота обработки данных в Гц
+#define IMU_FREQUENCY 100
 #define BLE_FREQUENCY 100
 #define BLE_SERIAL_FREQUENCY 10
 static bool log_paddle = false;
 
+bool log_imu = false;
+bool log_load = false;
+
 // Глобальные объекты
-SmartPaddleBLEClient paddle(TRUSTED_DEV_ADDR);
+SmartPaddleBLEClient paddle("Paddle_1");
+
+
 
 // Структуры для хранения последних полученных данных
 struct {
@@ -494,7 +494,7 @@ public:
         filter.update(imu_data.ax, imu_data.ay, imu_data.az, imu_data.gx, imu_data.gy, imu_data.gz, imu_data.mx, imu_data.my, imu_data.mz);
     }
 
-    Quaternion getOrientation() {
+    AHRSQuaternion getOrientation() {
         return filter.getQuaternion();
     }
 
@@ -528,7 +528,7 @@ ADXL345 accel;
 ITG3200 gyro;
 MechaQMC5883 qmc;
 
-IMUSensor_GY85 imu(accel, gyro, qmc);
+IMUSensor_GY85 imu("imu");
 SmartKayak kayak(&imu);
 
 
@@ -538,7 +538,10 @@ void bleTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_FREQUENCY);
 
     while(1) {
+        uint32_t start_ts = millis();
         paddle.updateBLE();
+        uint32_t end_ts = millis();
+//        Serial.printf("BLE update time: %u ms\n", end_ts - start_ts);
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -560,8 +563,8 @@ void processDataTask(void *pvParameters) {
             paddleData.load = load;
             paddleData.loadValid = true;
             if(log_paddle) {
-                Serial.printf("Load - L: %d, R: %d\n", 
-                            load.forceL, load.forceR);
+                Serial.printf("Load - L: %d, R: %d, ts: %d\n", 
+                            load.forceL, load.forceR, load.timestamp);
             }
         }
         
@@ -569,10 +572,12 @@ void processDataTask(void *pvParameters) {
             paddleData.imu = imu;
             paddleData.imuValid = true;
             if(log_paddle) {
-                Serial.printf("IMU - Accel: %.2f,%.2f,%.2f Gyro: %.2f,%.2f,%.2f Mag: %.2f,%.2f,%.2f\n",
+                Serial.printf("IMU - Accel: %.2f,%.2f,%.2f Gyro: %.2f,%.2f,%.2f Mag: %.2f,%.2f,%.2f, ts: %d\n",
                             imu.ax, imu.ay, imu.az,
                             imu.gx, imu.gy, imu.gz,
-                            imu.mx, imu.my, imu.mz);
+                            imu.mx, imu.my, imu.mz, imu.timestamp);
+                Serial.printf("DMP: q0=%.3, q1=%.3f, q2=%.3f, q3=%.3f, ts=%u\n",
+                            imu.q0, imu.q1, imu.q2, imu.q3, imu.timestamp);
             }
         }
         
@@ -580,9 +585,9 @@ void processDataTask(void *pvParameters) {
             paddleData.orientation = orientation;
             paddleData.orientationValid = true;
             if(log_paddle) {
-                Serial.printf("Orientation - Q: %.2f,%.2f,%.2f,%.2f\n",
+                Serial.printf("Orientation - Q: %.2f,%.2f,%.2f,%.2f, ts: %d\n",
                             orientation.q0, orientation.q1, 
-                            orientation.q2, orientation.q3);
+                            orientation.q2, orientation.q3, orientation.timestamp);
             }
         }
         
@@ -638,6 +643,12 @@ void bleSerialTasks(void *pvParameters) {
 #define CMD_LOG_STOP "log_stop"
 #define CMD_IMU_CALIBRATE "calibrate_imu"
 #define CMD_PADDLE_IMU_CALIBRATE "calibrate_paddle_imu"
+#define CMD_PADDLE_LOADS_CALIBRATE "calibrate_paddle_loads"
+#define CMD_PADDLE_LOADS_CALIBRATE_LEFT "calibrate_paddle_loads_left"
+#define CMD_PADDLE_LOADS_CALIBRATE_RIGHT "calibrate_paddle_loads_right"
+#define CMD_PADDLE_SEND_SPECS "send_specs"
+#define CMD_PADDLE_PAIR "paddle_pair"
+
 // Обработка команд
 void processCommand(const char* cmd) {
     if(strcmp(cmd, CMD_HELP) == 0) {
@@ -648,6 +659,12 @@ void processCommand(const char* cmd) {
         Serial.println("log_stop      - Stop logging paddle data");
         Serial.println("calibrate_imu - Start IMU calibration");
         Serial.println("calibrate_paddle_imu - Start Paddle IMU calibration");
+        Serial.println("calibrate_paddle_loads - Start Paddle loads calibration");
+        Serial.println("calibrate_paddle_loads_left - Start Paddle left load calibration");
+        Serial.println("calibrate_paddle_loads_right - Start Paddle right load calibration");
+        Serial.println("send_specs - Send Paddle specs");
+        Serial.println("paddle_pair - Start Paddle pairing");
+
         Serial.println("help          - Show this help");
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
@@ -662,7 +679,7 @@ void processCommand(const char* cmd) {
         PaddleSpecs specs = paddle.getSpecs();
         Serial.printf("Paddle ID: %08X\n", specs.PaddleID);
         Serial.printf("Blade type: %s\n", 
-                     specs.bladeType == TWO_BLADES ? "Double" : "Single");
+                     specs.paddleType == TWO_BLADES ? "Double" : "Single");
     }
     else if(strcmp(cmd, CMD_PAIR) == 0) {
         Serial.println("Starting pairing mode...");
@@ -670,10 +687,14 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_LOG_START) == 0) {
         log_paddle = true;
+//        log_imu = true;
+//        log_load = true;
         Serial.println("Logging started");
     }
     else if(strcmp(cmd, CMD_LOG_STOP) == 0) {
         log_paddle = false;
+        log_imu = false;
+        log_load = false;
         Serial.println("Logging stopped");
     } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
         imu.calibrate();
@@ -681,9 +702,26 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_PADDLE_IMU_CALIBRATE) == 0) {
         paddle.calibrateIMU();
     }
+    else if(strcmp(cmd, CMD_PADDLE_LOADS_CALIBRATE) == 0) {
+        paddle.calibrateLoads(ALL_BLADES);
+    }
+    else if(strcmp(cmd, CMD_PADDLE_LOADS_CALIBRATE_LEFT) == 0) {
+        paddle.calibrateLoads(LEFT_BLADE);
+    }
+    else if(strcmp(cmd, CMD_PADDLE_LOADS_CALIBRATE_RIGHT) == 0) {
+        paddle.calibrateLoads(RIGHT_BLADE);
+    }
+    else if(strcmp(cmd, CMD_PADDLE_SEND_SPECS) == 0) {
+        paddle.getSerial()->sendCommand("send_specs");
+    }
+    else if(strcmp(cmd, CMD_PADDLE_PAIR) == 0) {
+        paddle.getSerial()->sendCommand("start_pair");
+    }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
     }
+
+    Serial.print("Smart Kayak > ");
 }
 
 // Задача обработки команд через серийный порт
@@ -694,8 +732,9 @@ void serialCommandTask(void *pvParameters) {
     while(1) {
         if(Serial.available()) {
             char c = Serial.read();
-            
-            if(c == '\n' || c == '\r' || c == ' ' || c == '!') {
+            Serial.print(c);
+
+            if(c == '\n' || c == '\r') {
                 if(cmdIndex > 0) {
                     cmdBuffer[cmdIndex] = '\0';
                     processCommand(cmdBuffer);
@@ -764,6 +803,7 @@ void setup() {
     );
     Serial.println("Kayak Smart System Ready!");
     Serial.println("Type 'help' for available commands");
+    Serial.print("Smart Kayak > ");
 }
 
 void loop() {
