@@ -206,10 +206,8 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
        Serial.println("LOAD Calibration: ");
-        Serial.print("Left: ");
-        Serial.print(leftCell.getCalibrationData().calibrationFactor);
-        Serial.print(" Right: ");
-        Serial.println(rightCell.getCalibrationData().calibrationFactor);
+        Serial.printf("Left: factor = %.3f, offset = %d\n", leftCell.getCalibrationData().calibrationFactor, leftCell.getCalibrationData().offset);
+        Serial.printf("Right: factor = %.3f, offset = %d\n", rightCell.getCalibrationData().calibrationFactor, rightCell.getCalibrationData().offset);
         Serial.println("IMU Calibration: ");
         Serial.print("Accel Scale: ");
         Serial.print(imuSensor.getCalibrationData().accelScale[0]);

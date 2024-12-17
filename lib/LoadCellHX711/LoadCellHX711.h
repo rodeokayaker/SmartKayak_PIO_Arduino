@@ -21,8 +21,9 @@
  * @brief Структура для хранения калибровочных данных тензодатчика
  */
 struct LoadCellCalibData {
+
     float calibrationFactor;  // Коэффициент калибровки
-    float offset;            // Смещение нуля
+    int32_t offset;            // Смещение нуля
 };
 
 /**
@@ -32,6 +33,7 @@ class LoadCellHX711 : public ILoadCell {
 private:
     HX711 scale;                 // Объект HX711
     LoadCellCalibData calibData;  // Калибровочные данные
+
     bool calibValid;              // Флаг валидности калибровки
     int8_t log_level;            // Уровень логирования
     Stream* logStream;            // Поток для логирования
@@ -63,7 +65,7 @@ public:
     // Дополнительные методы
     void setLogLevel(int8_t level) { log_level = level; }
     LoadCellCalibData& getCalibrationData() { return calibData; }
-    void tare();  // Установка нуля
+    void resetCalibration();  // Установка нуля
 
     virtual void setLogStream(Stream* stream=&Serial) override;
     void setPins(uint8_t dout_pin, uint8_t sclk_pin) { doutPin = dout_pin; sclkPin = sclk_pin; }

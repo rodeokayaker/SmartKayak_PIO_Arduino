@@ -112,7 +112,7 @@ void SmartPaddleBLEServer::updateLoads(){
     else
         data.forceL = 0;
 
-//        Serial.printf("Loads: %d, %d\n", data.forceR, data.forceL);
+//        Serial.printf("Loads: rigth: %d, left: %d\n",  data.forceR, data.forceL);
     
     data.timestamp=millis();
     loadsensorQueue.send(data);
