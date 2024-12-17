@@ -5,7 +5,8 @@
 
 #pragma once
 #include "SP_BLESerial.h"
-#include "SmartPaddle.h"
+#include "SmartPaddleClient.h"
+
 
 
 class SP_BLESerialClient : public SP_BLESerial, public BLECharacteristicCallbacks {

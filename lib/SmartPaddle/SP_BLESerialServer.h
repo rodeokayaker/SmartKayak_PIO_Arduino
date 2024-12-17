@@ -5,6 +5,8 @@
 
 #pragma once
 #include "SP_BLESerial.h"
+#include "SmartPaddleServer.h"
+#include <BLE2902.h>
 
 class SP_BLESerialServer : public SP_BLESerial, public BLECharacteristicCallbacks {
 private:

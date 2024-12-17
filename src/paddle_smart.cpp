@@ -1,4 +1,5 @@
 #include "SmartPaddle.h"
+#include "SmartPaddleServer.h"
 //#include "IMUSensor_GY85.h"
 #include "IMUSensor_GY87.h"
 #include "HX711.h"
@@ -10,6 +11,9 @@
 #include "esp_private/usb_console.h"  // для CDC событий
 #include "LoadCellHX711.h"
 #include "SP_BLESerial.h"
+#include "LogInterface.h"
+
+
 #define INCLUDE_vTaskDelayUntil 1
 
 
@@ -20,17 +24,16 @@ constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = 8;
 constexpr int I2C_SCL = 9;
-constexpr int INTERRUPT_PIN = 0;
+constexpr int INTERRUPT_PIN = -1;
 
 // FreeRTOS определения
 #define SENSOR_STACK_SIZE 4096
 #define IMU_STACK_SIZE 4096
 #define LOAD_FREQUENCY 10
-#define IMU_FREQUENCY 98
-#define BLE_FREQUENCY 98
+#define IMU_FREQUENCY 100
+#define BLE_FREQUENCY 100
 #define BLE_SERIAL_FREQUENCY 10
 #define BLE_STACK_SIZE 4096
-#define IMU_INTERRUPT_PIN 23
 static bool log_imu = false;
 static bool log_load = false;
 
@@ -52,8 +55,46 @@ uint32_t generatePaddleID() {
     return chipId ^ 0xDEADBEEF; // XOR с константой для уникальности
 }
 
+
+class RGBLedInterface: public ILogInterface{
+    private:
+    int r_pin;
+    int g_pin;
+    int b_pin;
+    public:
+    RGBLedInterface(int r_pin, int g_pin, int b_pin):r_pin(r_pin), g_pin(g_pin), b_pin(b_pin){}
+    void logQuaternion(const float* q) override{
+        float yaw=atan2(2.0f*(q[0]*q[1]+q[2]*q[3]),1.0f-2.0f*(q[1]*q[1]+q[2]*q[2]));
+        float pitch=asin(2.0f*(q[0]*q[2]-q[1]*q[3]));
+        float roll=atan2(2.0f*(q[0]*q[3]+q[1]*q[2]),1.0f-2.0f*(q[2]*q[2]+q[3]*q[3]));
+
+        if (yaw>M_PI) yaw-=2.0f*M_PI;
+        if (pitch>M_PI) pitch-=2.0f*M_PI;
+        if (roll>M_PI) roll-=2.0f*M_PI;
+        if (yaw<-M_PI) yaw+=2.0f*M_PI;
+        if (pitch<-M_PI) pitch+=2.0f*M_PI;
+        if (roll<-M_PI) roll+=2.0f*M_PI;
+        if (yaw<0) yaw=-yaw;
+        if (pitch<0) pitch=-pitch;
+        if (roll<0) roll=-roll;
+
+        uint8_t yaw_int=uint8_t(yaw*255.0f/(M_PI));
+        uint8_t pitch_int=uint8_t(pitch*255.0f/(M_PI));
+        uint8_t roll_int=uint8_t(roll*255.0f/(M_PI));
+
+        analogWrite(r_pin, yaw_int);
+        analogWrite(g_pin, pitch_int);
+        analogWrite(b_pin, roll_int);
+
+    }
+};
+
+
 static uint32_t last_load_time = millis();
 static float frequency_load = 10;
+
+
+
 
 // Задача чтения тензодатчиков
 void loadCellTask(void *pvParameters) {
@@ -88,11 +129,14 @@ void imuTask(void *pvParameters) {
         last_imu_time = millis();
 /*        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
         Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);*/
+
         imuSensor.update();
+
         if (paddle.connected()) {
             paddle.updateIMU();
         }
-        
+
+
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
     }
@@ -112,7 +156,6 @@ void bleTask(void *pvParameters) {
         last_ble_time = millis();
         frequency_ble = 100.0/(99.0/frequency_ble+time_diff/1000.0);
 //        Serial.printf("BLE callbck time = %d, frequency = %f\n", time_diff, frequency_ble);
-
         paddle.updateBLE();
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
@@ -334,6 +377,8 @@ void setup() {
     paddle.setIMU(&imuSensor);
     paddle.setLoads(&rightCell, &leftCell);
 
+ //   paddle.setLogInterface(new RGBLedInterface(4, 1, 7));
+    
     Serial.printf("Paddle ID: %08X\n", paddleId);
     
     // Проверка калибровки

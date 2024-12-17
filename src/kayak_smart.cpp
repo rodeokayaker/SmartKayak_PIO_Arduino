@@ -1,8 +1,11 @@
-#include "SmartPaddle.h"
+#include "SmartPaddleClient.h"
+#include "SmartPaddleServer.h"
+
 #include "Wire.h"
 #include "esp_log.h"
 #include "IMUSensor_GY85.h"
 #include "MadgwickAHRS.h"
+#include "Peripherals.h"
 
 #define INCLUDE_vTaskDelayUntil 1
 
@@ -40,8 +43,8 @@ int PWM1_DutyCycle = 0;
 #define BLE_SERIAL_FREQUENCY 10
 static bool log_paddle = false;
 
-bool log_imu = false;
-bool log_load = false;
+extern bool log_imu;
+extern bool log_load;
 
 // Глобальные объекты
 SmartPaddleBLEClient paddle("Paddle_1");
@@ -63,235 +66,15 @@ struct {
 } paddleData;
 
 
-enum LED_MODE {
-    LED_OFF,
-    LED_ON,
-    LED_CYCLE
-};
-
-class LEDDriver {
-protected:
-    const int pin;
-    bool is_on;
-    bool in_cycle;
-    uint32_t cycle_period_on;
-    uint32_t cycle_period_off;
-    uint32_t stop_cycle;
-    LED_MODE cycle_finish_mode;
-    TaskHandle_t ledTaskHandle;
-    TimerHandle_t ledTimer;
-    
-    // Статический метод для задачи FreeRTOS
-    static void ledTask(void* parameter) {
-        LEDDriver* led = static_cast<LEDDriver*>(parameter);
-        while(1) {
-            uint32_t notification;
-            // Ждем уведомления от таймера
-            if(xTaskNotifyWait(0, ULONG_MAX, &notification, portMAX_DELAY)) {
-                led->handleTimerEvent();
-            }
-        }
-    }
-    
-    // Обработка события таймера (вызывается из задачи)
-    void handleTimerEvent() {
-        if(in_cycle) {
-            if(stop_cycle > 0 && millis() >= stop_cycle) {
-                in_cycle = false;
-                xTimerStop(ledTimer, 0);
-                if(cycle_finish_mode == LED_ON) {
-                    on();
-                } else {
-                    off();
-                }
-                return;
-            }
-            
-            // Переключение состояния
-            is_on = !is_on;
-            digitalWrite(pin, is_on ? HIGH : LOW);
-            
-            // Установка следующего периода
-            uint32_t next_period = is_on ? cycle_period_on : cycle_period_off;
-            xTimerChangePeriod(ledTimer, pdMS_TO_TICKS(next_period), 0);
-        }
-    }
-    
-    // Статический колбэк для таймера
-    static void timerCallback(TimerHandle_t timer) {
-        LEDDriver* led = static_cast<LEDDriver*>(pvTimerGetTimerID(timer));
-        // Отправляем уведомление задаче
-        if(led->ledTaskHandle != nullptr) {
-            xTaskNotifyFromISR(led->ledTaskHandle, 1, eSetValueWithOverwrite, nullptr);
-        }
-    }
-
-
-public:
-    LEDDriver(int pin) : 
-        pin(pin), 
-        is_on(false), 
-        in_cycle(false),
-        ledTaskHandle(nullptr),
-        ledTimer(nullptr) {}
-    
-    void begin() {
-        Serial.printf("LEDDriver begin\n");
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, HIGH);
-        is_on = false;
-        
-        // Создаем задачу
-        xTaskCreate(
-            ledTask,
-            "LED_Task",
-            2048,
-            this,
-            1,
-            &ledTaskHandle
-        );
-        
-        // Создаем программный таймер
-        ledTimer = xTimerCreate(
-            "LED_Timer",
-            pdMS_TO_TICKS(100), // Начальный период не важен
-            pdFALSE,  // Одноразовый таймер
-            this,     // ID таймера - указатель на объект
-            timerCallback
-        );
-    }
-    
-    virtual void on() {
-        Serial.printf("LEDDriver on\n");
-        if(ledTimer) {
-            xTimerStop(ledTimer, 0);
-        }
-        digitalWrite(pin, HIGH);
-        is_on = true;
-        in_cycle = false;
-    }
-    
-    virtual void off() {
-        Serial.printf("LEDDriver off\n");
-        if(ledTimer) {
-            xTimerStop(ledTimer, 0);
-        }
-        digitalWrite(pin, LOW);
-        is_on = false;
-        in_cycle = false;
-    }
-    
-    void Blink(uint32_t period_on_ms, uint32_t period_off_ms, 
-               uint32_t duration_ms = 0, LED_MODE finish_mode = LED_CYCLE) {
-        if(!ledTimer) return;
-        
-        cycle_period_on = period_on_ms;
-        cycle_period_off = period_off_ms;
-        cycle_finish_mode = finish_mode;
-        in_cycle = true;
-        
-        if(duration_ms > 0) {
-            stop_cycle = millis() + duration_ms;
-        } else {
-            stop_cycle = 0;
-        }
-        
-        // Запуск с включенного состояния
-        digitalWrite(pin, HIGH);
-        is_on = true;
-        
-        xTimerChangePeriod(ledTimer, pdMS_TO_TICKS(period_on_ms), 0);
-        xTimerStart(ledTimer, 0);
-    }
-    
-    bool isOn() { return is_on; }
-    LED_MODE getMode() { 
-        if(in_cycle) return LED_CYCLE;
-        return is_on ? LED_ON : LED_OFF;
-    }
-    
-    ~LEDDriver() {
-        if(ledTimer) {
-            xTimerDelete(ledTimer, 0);
-        }
-        if(ledTaskHandle) {
-            vTaskDelete(ledTaskHandle);
-        }
-    }
-};
-
-enum BUTTON_STATE {
-    BUTTON_PRESSED,
-    BUTTON_RELEASED
-};
-
-class ButtonDriver {
-protected:
-    int pin;
-    uint32_t last_state_change;
-    BUTTON_STATE state;
-    int main_frequency;
-
-public:
-    ButtonDriver(int pin) : pin(pin), state(BUTTON_RELEASED), last_state_change(0) {}
-    
-    void begin(int frequency=100);
-    
-    virtual void update() {
-        // В этой реализации основная обработка происходит в прерывании
-    }
-    
-    bool isPressed() { return state == BUTTON_PRESSED; }
-    BUTTON_STATE getState() { return state; }
-    int getPin() { return pin; }
-    int getFrequency() { return main_frequency; }
-    
-    // Виртуальные функции для обработки событий
-    virtual void onPress() {}
-    virtual void onRelease() {}
-    
-    friend void IRAM_ATTR buttonISR(void* arg); // Для доступа к protected полям из прерывания
-};
-
-// Обработчик прерывания для кнопки
-void IRAM_ATTR buttonISR(void* arg) {
-    ButtonDriver* button = (ButtonDriver*)arg;
-    // Используем millis() для защиты от дребезга
-    uint32_t now = millis();
-    if (now - button->last_state_change >= button->main_frequency) {
-        button->last_state_change = now;
-        if (digitalRead(button->getPin()) == HIGH) {
-            button->state = BUTTON_PRESSED;
-            button->onPress();
-        } else {
-            button->state = BUTTON_RELEASED;
-            button->onRelease();
-        }
-    }
-}
-
-void ButtonDriver::begin(int frequency) {
-    main_frequency = frequency;
-    pinMode(pin, INPUT);
-        
-    // Настройка прерывания
-    attachInterruptArg(
-            digitalPinToInterrupt(pin),
-            buttonISR,
-            this,
-            CHANGE
-    );
-}
-
 class SmartKayak;
 class PowerButton : public ButtonDriver {
 private:
 
-LEDDriver greenLED;
-LEDDriver blueLED;
-LEDDriver redLED;
-int currentMode;
-SmartKayak* kayak;
+    LEDDriver greenLED;
+    LEDDriver blueLED;
+    LEDDriver redLED;
+    int currentMode;
+    SmartKayak* kayak;
 public:
     PowerButton(int pin, SmartKayak* kayak) : 
         ButtonDriver(pin), 
@@ -528,7 +311,7 @@ ADXL345 accel;
 ITG3200 gyro;
 MechaQMC5883 qmc;
 
-IMUSensor_GY85 imu("imu");
+IMUSensor_GY85 imu("imu_gy85");
 SmartKayak kayak(&imu);
 
 
@@ -558,7 +341,7 @@ void processDataTask(void *pvParameters) {
         OrientationData orientation;
         BladeData blade;
         PaddleStatus status;
-        
+
         if(paddle.getLoadData(load)) {
             paddleData.load = load;
             paddleData.loadValid = true;
@@ -576,7 +359,7 @@ void processDataTask(void *pvParameters) {
                             imu.ax, imu.ay, imu.az,
                             imu.gx, imu.gy, imu.gz,
                             imu.mx, imu.my, imu.mz, imu.timestamp);
-                Serial.printf("DMP: q0=%.3, q1=%.3f, q2=%.3f, q3=%.3f, ts=%u\n",
+                Serial.printf("DMP: q0=%.3f, q1=%.3f, q2=%.3f, q3=%.3f, ts=%d\n",
                             imu.q0, imu.q1, imu.q2, imu.q3, imu.timestamp);
             }
         }
@@ -608,7 +391,7 @@ void processDataTask(void *pvParameters) {
                             status.batteryLevel, status.temperature);
             }
         }
-        
+
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -769,7 +552,7 @@ void setup() {
         NULL,
         2,
         NULL,
-        1  // BLE на ядре 1
+        0  // BLE на ядре 1
     );
     
     xTaskCreatePinnedToCore(
@@ -777,9 +560,9 @@ void setup() {
         "Process",
         PROCESS_STACK_SIZE,
         NULL,
-        1,
+        2,
         NULL,
-        1  // Обработка на ядре 0
+        1  // Обработка на ядре 1
     );
     
     xTaskCreatePinnedToCore(
@@ -799,7 +582,7 @@ void setup() {
         NULL,
         1,
         NULL,
-        0  // LED на ядре 0
+        0  
     );
     Serial.println("Kayak Smart System Ready!");
     Serial.println("Type 'help' for available commands");
