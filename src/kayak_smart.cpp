@@ -297,9 +297,9 @@ public:
 };
 
 void PowerButton::onPress() {
-    Serial.printf("PowerButton onPress %d to ", currentMode);
+//    Serial.printf("PowerButton onPress %d to ", currentMode);
     currentMode = ((currentMode+1) % 3) + 1;
-    Serial.printf("%d\n", currentMode);
+//    Serial.printf("%d\n", currentMode);
     switch(currentMode) {
         case 3: greenLED.on(); blueLED.off(); redLED.off(); kayak->setForceMode(LOW_POWER); break;
         case 2: greenLED.off(); blueLED.on(); redLED.off(); kayak->setForceMode(MEDIUM_POWER); break;
