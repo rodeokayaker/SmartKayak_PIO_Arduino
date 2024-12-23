@@ -33,6 +33,11 @@ struct IMUCalibData {
     float magScale[3];       // Масштабирующие коэффициенты для нормализации
 };
 
+struct MagMinMax {
+    int16_t min[3];
+    int16_t max[3];
+};
+
 class IMUSensor_GY87 : public IIMU {
 private:
     MPU6050_6Axis_MotionApps20 mpu;                  // MPU6050 (акселерометр + гироскоп)
@@ -58,7 +63,9 @@ private:
     uint16_t packetSize;
     uint16_t fifoCount;
     uint8_t fifoBuffer[64];
-    
+    MagMinMax magMinMax;
+    bool autoCalibrateMag;
+
     // Переменные ориентации
     Quaternion q;
     VectorFloat gravity;
@@ -72,6 +79,7 @@ private:
     float convertRawAcceleration(int16_t aRaw);
     float convertRawGyro(int16_t gRaw);
     float convertRawCompass(int mag);
+    void setMagMinMax();
     
 public:
     IMUSensor_GY87(const char* prefsName, Stream* logStream = &Serial);
@@ -110,6 +118,8 @@ public:
 
     void getSmoothedReadings(int16_t* readings, int samples = 1000);
     bool isStable(int16_t* readings1, int16_t* readings2, int tolerance);
+    void setAutoCalibrateMag(bool enable = true) { autoCalibrateMag = enable; }
+
 };
 
 #endif

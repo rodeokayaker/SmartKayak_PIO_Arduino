@@ -120,6 +120,31 @@ public:
     ~OverwritingQueue() {
         vQueueDelete(queue);
     }
+
+    // Получить количество элементов в очереди
+    size_t available() {
+        return uxQueueMessagesWaiting(queue);
+    }
+    
+    // Получить количество свободных мест
+    size_t freeSpace() {
+        return uxQueueSpacesAvailable(queue);
+    }
+    
+    // Получить максимальный размер очереди
+    size_t getMaxSize() {
+        return maxSize;
+    }
+    
+    // Проверить, пуста ли очередь
+    bool isEmpty() {
+        return available() == 0;
+    }
+    
+    // Проверить, заполнена ли очередь
+    bool isFull() {
+        return freeSpace() == 0;
+    }
 };
 
 

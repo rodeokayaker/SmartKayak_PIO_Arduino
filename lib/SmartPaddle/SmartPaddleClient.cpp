@@ -136,9 +136,20 @@ void SmartPaddleBLEClient::imuCallback(BLERemoteCharacteristic* pChar, uint8_t* 
     frequency_notify = 100.0/(99.0/frequency_notify+time_diff/1000.0);
 //    Serial.printf("IMU callback time = %d, frequency = %f\n", time_diff, frequency_notify);
     IMUData data;
+
     if(length == sizeof(IMUData)) {
 
         memcpy(&data, pData, sizeof(IMUData));
+        
+//        Serial.printf("IMU imestamp: %u\n",data.timestamp);
+
+
+/*            Serial.printf("IMU: ax=%.2f ay=%.2f az=%.2f gx=%.2f gy=%.2f gz=%.2f mx=%.2f my=%.2f mz=%.2f ts=%u\n",
+                data.ax, data.ay, data.az,
+                data.gx, data.gy, data.gz,
+                data.mx, data.my, data.mz,
+                data.timestamp);*/
+
         if (log_imu) {
             Serial.printf("IMU: ax=%.2f ay=%.2f az=%.2f gx=%.2f gy=%.2f gz=%.2f mx=%.2f my=%.2f mz=%.2f ts=%u\n",
                 data.ax, data.ay, data.az,
@@ -199,7 +210,15 @@ bool SmartPaddleBLEClient::getLoadData(loadData& data, TickType_t timeout) {
 }
 
 bool SmartPaddleBLEClient::getIMUData(IMUData& data, TickType_t timeout) {
-    return imuQueue.receive(data, timeout);
+
+    //READ LAST DATA
+    if (imuQueue.available() > 0) {
+//        while (imuQueue.available() > 0) {
+            imuQueue.receive(data, timeout);
+//        }
+        return true;
+    }
+    return false;
 }
 
 bool SmartPaddleBLEClient::getStatusData(PaddleStatus& data, TickType_t timeout) {
@@ -207,7 +226,14 @@ bool SmartPaddleBLEClient::getStatusData(PaddleStatus& data, TickType_t timeout)
 }   
 
 bool SmartPaddleBLEClient::getOrientationData(OrientationData& data, TickType_t timeout) {
-    return orientationQueue.receive(data, timeout);
+    //READ LAST DATA
+    if (orientationQueue.available() > 0) {
+//        while (orientationQueue.available() > 0) {
+            orientationQueue.receive(data, timeout);
+//        }
+        return true;
+    }
+    return false;
 }      
 
 bool SmartPaddleBLEClient::getBladeData(BladeData& data, TickType_t timeout) {
@@ -505,9 +531,20 @@ void SmartPaddleBLEClient::calibrateIMU() {
 
 void SmartPaddleBLEClient::calibrateLoads(BladeSideType blade_side) {
     if (serial) {
-        JsonObject params;
+        JsonDocument doc;
+        JsonObject params=doc.to<JsonObject>();
         params["blade_side"] = blade_side;
-        serial->sendCommand("calibrate_loads", &params);
+        switch(blade_side){
+            case RIGHT_BLADE:
+            serial->sendCommand("calibrate_loads_right", &params);    
+            break;
+            case LEFT_BLADE:
+            serial->sendCommand("calibrate_loads_left", &params);            
+            break;
+            case ALL_BLADES:
+            serial->sendCommand("calibrate_loads", &params);
+            break;
+        }
     }
 }
 
@@ -536,4 +573,8 @@ bool SmartPaddleBLEClient::setupCharacteristics() {
 //    bladeChar->registerForNotify(bladeCallback);
     
     return true;
+}
+
+void SmartPaddleBLEClient::shutdown() {
+    if (serial) serial->sendCommand("shutdown");
 }

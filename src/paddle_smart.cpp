@@ -12,6 +12,7 @@
 #include "LoadCellHX711.h"
 #include "SP_BLESerial.h"
 #include "LogInterface.h"
+#include "Peripherals.h"
 
 
 #define INCLUDE_vTaskDelayUntil 1
@@ -22,9 +23,11 @@ constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
 constexpr int RIGHT_LOADCELL_SCK_PIN = 3;
 constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
-constexpr int I2C_SDA = 8;
-constexpr int I2C_SCL = 9;
+constexpr int I2C_SDA = 9;
+constexpr int I2C_SCL = 10;
 constexpr int INTERRUPT_PIN = -1;
+constexpr int POWER_PIN = 1;
+constexpr int SWITCH_OFF_PIN = 4;
 
 // FreeRTOS определения
 #define SENSOR_STACK_SIZE 4096
@@ -34,8 +37,9 @@ constexpr int INTERRUPT_PIN = -1;
 #define BLE_FREQUENCY 100
 #define BLE_SERIAL_FREQUENCY 10
 #define BLE_STACK_SIZE 4096
-static bool log_imu = false;
-static bool log_load = false;
+
+extern bool log_imu;
+extern bool log_load;
 
 // Глобальная переменная для хранения handle задачи
 TaskHandle_t serialTaskHandle = NULL;
@@ -93,7 +97,18 @@ class RGBLedInterface: public ILogInterface{
 static uint32_t last_load_time = millis();
 static float frequency_load = 10;
 
+class switchOffButton: public ButtonDriver {
+    public:
+    switchOffButton(int pin): ButtonDriver(pin) {}
+    void onLongPress() override {
+        Serial.println("Switch off button long press");
+        digitalWrite(POWER_PIN, LOW);
+    }
+    void onRelease() override { Serial.println("Switch off button release");}
+    void onPress() override { Serial.println("Switch off button press");}
+};
 
+switchOffButton OffButton(SWITCH_OFF_PIN);
 
 
 // Задача чтения тензодатчиков
@@ -344,10 +359,14 @@ void bleSerialTask(void *pvParameters) {
 }
 
 void setup() {
+    pinMode(POWER_PIN, OUTPUT);
+    digitalWrite(POWER_PIN, HIGH);
     Serial.begin(115200);
-    while (!Serial) delay(10);
-    
-    delay(1000);
+    for (int i=0; i<200; i++) {
+        digitalWrite(POWER_PIN, HIGH);  
+        delay(10);
+    }
+
     Wire.begin(I2C_SDA, I2C_SCL);
     
     
@@ -369,7 +388,7 @@ void setup() {
     paddleId = generatePaddleID();
     paddle.setPaddleID(paddleId);
     paddle.setFilterFrequency(IMU_FREQUENCY);
-
+    paddle.setPowerPin(POWER_PIN);
     // Инициализация Весла
     paddle.begin("SmartPaddle v. 1.0");
     paddle.setIMU(&imuSensor);
@@ -453,6 +472,8 @@ void setup() {
 
     Serial.println("Smart Paddle Ready!");
     Serial.println("Type 'help' for available commands");
+    digitalWrite(POWER_PIN, HIGH);   
+    OffButton.begin();
 }
 
 

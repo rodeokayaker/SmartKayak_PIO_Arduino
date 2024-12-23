@@ -55,6 +55,9 @@ protected:
     uint32_t last_state_change;
     BUTTON_STATE state;
     int main_frequency;
+    uint32_t press_start_time;  // Время начала нажатия
+    bool long_press_fired;      // Флаг срабатывания длительного нажатия
+
 
 public:
     ButtonDriver(int pin);
@@ -68,6 +71,7 @@ public:
     // Виртуальные функции для обработки событий
     virtual void onPress() =0;
     virtual void onRelease() =0;
+    virtual void onLongPress() =0;
     
     friend void IRAM_ATTR buttonISR(void* arg);
     virtual ~ButtonDriver() = default;

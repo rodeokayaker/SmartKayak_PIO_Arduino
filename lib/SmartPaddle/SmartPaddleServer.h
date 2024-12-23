@@ -43,6 +43,7 @@ private:
 
     void setTrustedDevice(BLEAddress* address);
     void loadTrustedDevice();
+    int power_pin;
 
 public:
     void clearTrustedDevice();
@@ -81,6 +82,8 @@ public:
     void calibrateLoads(BladeSideType blade_side) override;
     void setLogStream(Stream* stream=&Serial);
     void setLogInterface(ILogInterface* logInterface){this->logInterface=logInterface;}
+    void shutdown();
+    void setPowerPin(int pin){power_pin=pin;}
 }; 
 
 #endif // SMARTPADDLE_BLE_SERVER_H

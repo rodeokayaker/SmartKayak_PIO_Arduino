@@ -12,6 +12,9 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 
+extern bool log_imu;
+extern bool log_load;
+
 
 class SerialServer_MessageHandler: public BLESerialMessageHandler{
     private:
@@ -33,16 +36,33 @@ class SerialServer_MessageHandler: public BLESerialMessageHandler{
         }
         if (strcmp(command, "calibrate_loads") == 0) {
             paddle->setLogStream(paddle->getSerial());
-            paddle->calibrateLoads(params["blade_side"]);
+            paddle->calibrateLoads(ALL_BLADES);
             paddle->setLogStream(&Serial);
             return;
         }
+        if (strcmp(command, "calibrate_loads_left") == 0) {
+            paddle->setLogStream(paddle->getSerial());
+            paddle->calibrateLoads(LEFT_BLADE);
+            paddle->setLogStream(&Serial);
+            return;
+        }
+        if (strcmp(command, "calibrate_loads_right") == 0) {
+            paddle->setLogStream(paddle->getSerial());
+            paddle->calibrateLoads(RIGHT_BLADE);
+            paddle->setLogStream(&Serial);
+            return;
+        }        
+
         if (strcmp(command, "send_specs") == 0) {
             paddle->sendSpecs();
             return;
         }
         if (strcmp(command, "start_pair") == 0) {
             paddle->startPairing();
+            return;
+        }
+        if (strcmp(command, "shutdown") == 0) {
+            paddle->shutdown();
             return;
         }
     }
@@ -82,18 +102,22 @@ void SmartPaddleBLEServer::calibrateIMU(){
 }
 
 void SmartPaddleBLEServer::calibrateLoads(BladeSideType blade_side){
+    logStream->println("CALIBRATE LOADS COMMAND");
     switch(blade_side){
         case LEFT_BLADE:
+            logStream->println("LEFT BLADE CALIBRATION");        
             if (loads[1])
                 loads[1]->calibrate(); else
                 logStream->println("No left blade");
             break;
         case RIGHT_BLADE:
+            logStream->println("RIGHT BLADE CALIBRATION");
             if (loads[0])
                 loads[0]->calibrate(); else
                 logStream->println("No right blade");
             break;
         case ALL_BLADES:
+            logStream->println("ALL BLADE CALIBRATION");        
             if (loads[0])
                 loads[0]->calibrate(); else
                 logStream->println("No right blade");
@@ -112,7 +136,9 @@ void SmartPaddleBLEServer::updateLoads(){
     else
         data.forceL = 0;
 
-//        Serial.printf("Loads: rigth: %d, left: %d\n",  data.forceR, data.forceL);
+
+    if (log_load)
+        Serial.printf("Loads: rigth: %d, left: %d\n",  data.forceR, data.forceL);
     
     data.timestamp=millis();
     loadsensorQueue.send(data);
@@ -134,7 +160,8 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name,uint16_t filte
       imu(nullptr),
       loads{nullptr,nullptr},
       prefsName(prefs_Name),
-      logInterface(nullptr)
+      logInterface(nullptr),
+      power_pin(-1)
 {
     run_madgwick=true;
     serial=new SP_BLESerialServer(this);
@@ -488,4 +515,12 @@ void SmartPaddleBLEServer::updateBLE(){
         if (serial) serial->update();
 
     }
+}
+
+void SmartPaddleBLEServer::shutdown() {
+    Serial.printf("Shutdown Paddle. PIN: %d\n", power_pin);
+    if (logStream)
+        logStream->println("Shutdown Paddle");
+    delay(100);
+    if (power_pin>=0) digitalWrite(power_pin, LOW);
 }

@@ -7,6 +7,12 @@
 #include "MadgwickAHRS.h"
 #include "Peripherals.h"
 
+#include "SPI.h"
+#include "SD.h"
+//#include "TroykaDHT.h"
+
+
+
 #define INCLUDE_vTaskDelayUntil 1
 
 // Define pins
@@ -27,6 +33,11 @@
 #define PWM1_MED   2.0
 #define PWM1_LOW   1.0
 
+#define SD_MISO     12    // GPIO19
+#define SD_MOSI     14    // GPIO23  
+#define SD_SCK      13    // GPIO18
+#define SD_CS       2     // GPIO5 (CS
+
 // define initial power state, mode and force threshold
 const int FORCE_THRESHOLD = 20; // минимальный уровень чувствительности тензодатчиков
 const int MAX_FORCE = 100; // максимальное усилие на весле
@@ -37,7 +48,7 @@ int PWM1_DutyCycle = 0;
 // FreeRTOS определения
 #define BLE_STACK_SIZE 4096
 #define PROCESS_STACK_SIZE 4096
-#define PROCESS_FREQUENCY 100  // Частота обработки данных в Гц
+#define PROCESS_FREQUENCY 50  // Частота обработки данных в Гц
 #define IMU_FREQUENCY 100
 #define BLE_FREQUENCY 100
 #define BLE_SERIAL_FREQUENCY 10
@@ -101,6 +112,7 @@ public:
     void onRelease() override {
     
     }
+    void onLongPress() override {}
 };
 
 // Константы для режимов мощности
@@ -350,25 +362,63 @@ void processDataTask(void *pvParameters) {
                             load.forceL, load.forceR, load.timestamp);
             }
         }
-        
+        paddle.getIMUData(imu); //downgrade to 50HZ
         if(paddle.getIMUData(imu)) {
             paddleData.imu = imu;
             paddleData.imuValid = true;
             if(log_paddle) {
-                Serial.printf("IMU - Accel: %.2f,%.2f,%.2f Gyro: %.2f,%.2f,%.2f Mag: %.2f,%.2f,%.2f, ts: %d\n",
+                uint32_t start_ts = millis();
+/*                int tmp_int;
+                Serial.print("IMU - Accel: ");
+                tmp_int = imu.ax*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.ay*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.az*1000;
+                Serial.print(tmp_int);
+                Serial.print(" Gyro: ");
+                tmp_int = imu.gx*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.gy*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.gz*1000;
+                Serial.print(tmp_int);
+                Serial.print(" Mag: ");
+                tmp_int = imu.mx*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.my*1000;
+                Serial.print(tmp_int);
+                Serial.print(",");
+                tmp_int = imu.mz*1000;
+                Serial.print(tmp_int);
+                Serial.print(" ts: ");
+                Serial.println(imu.timestamp);*/
+                Serial.printf("Accel: %.4f, %.4f, %.4f Gyro: %.4f, %.4f, %.4f Mag: %.4f, %.4f, %.4f, ts: %d\n",
                             imu.ax, imu.ay, imu.az,
                             imu.gx, imu.gy, imu.gz,
                             imu.mx, imu.my, imu.mz, imu.timestamp);
-                Serial.printf("DMP: q0=%.3f, q1=%.3f, q2=%.3f, q3=%.3f, ts=%d\n",
+
+                
+                Serial.printf("DMP: %.4f, %.4f, %.4f, %.4f, ts=%d\n",
                             imu.q0, imu.q1, imu.q2, imu.q3, imu.timestamp);
+                uint32_t end_ts = millis();
+                if (end_ts - start_ts > 8) {
+                    Serial.printf("Print time: %d ms\n", end_ts - start_ts);
+                }
             }
         }
-        
+
+        paddle.getOrientationData(orientation); //downgrade to 50HZ
         if(paddle.getOrientationData(orientation)) {
             paddleData.orientation = orientation;
             paddleData.orientationValid = true;
             if(log_paddle) {
-                Serial.printf("Orientation - Q: %.2f,%.2f,%.2f,%.2f, ts: %d\n",
+                Serial.printf("Madgwick: %.4f, %.4f, %.4f, %.4f, ts: %d\n",
                             orientation.q0, orientation.q1, 
                             orientation.q2, orientation.q3, orientation.timestamp);
             }
@@ -427,10 +477,11 @@ void bleSerialTasks(void *pvParameters) {
 #define CMD_IMU_CALIBRATE "calibrate_imu"
 #define CMD_PADDLE_IMU_CALIBRATE "calibrate_paddle_imu"
 #define CMD_PADDLE_LOADS_CALIBRATE "calibrate_paddle_loads"
-#define CMD_PADDLE_LOADS_CALIBRATE_LEFT "calibrate_paddle_loads_left"
-#define CMD_PADDLE_LOADS_CALIBRATE_RIGHT "calibrate_paddle_loads_right"
+#define CMD_PADDLE_LOADS_CALIBRATE_LEFT "calibrate_paddle_left"
+#define CMD_PADDLE_LOADS_CALIBRATE_RIGHT "calibrate_paddle_right"
 #define CMD_PADDLE_SEND_SPECS "send_specs"
 #define CMD_PADDLE_PAIR "paddle_pair"
+#define CMD_PADDLE_SHUTDOWN "shutdown"
 
 // Обработка команд
 void processCommand(const char* cmd) {
@@ -443,11 +494,11 @@ void processCommand(const char* cmd) {
         Serial.println("calibrate_imu - Start IMU calibration");
         Serial.println("calibrate_paddle_imu - Start Paddle IMU calibration");
         Serial.println("calibrate_paddle_loads - Start Paddle loads calibration");
-        Serial.println("calibrate_paddle_loads_left - Start Paddle left load calibration");
-        Serial.println("calibrate_paddle_loads_right - Start Paddle right load calibration");
+        Serial.println("calibrate_paddle_left - Start Paddle left load calibration");
+        Serial.println("calibrate_paddle_right - Start Paddle right load calibration");
         Serial.println("send_specs - Send Paddle specs");
         Serial.println("paddle_pair - Start Paddle pairing");
-
+        Serial.println("shutdown - Shutdown Paddle");
         Serial.println("help          - Show this help");
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
@@ -500,6 +551,9 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_PADDLE_PAIR) == 0) {
         paddle.getSerial()->sendCommand("start_pair");
     }
+    else if(strcmp(cmd, CMD_PADDLE_SHUTDOWN) == 0) {
+        paddle.getSerial()->sendCommand("shutdown");
+    }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
     }
@@ -532,10 +586,14 @@ void serialCommandTask(void *pvParameters) {
 }
 
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(230400);
     while (!Serial) delay(10);
     
     delay(1000);
+
+    
+
+
     Wire.begin();
     
     Serial.println("\nKayak Smart System Initializing...");
@@ -584,6 +642,21 @@ void setup() {
         NULL,
         0  
     );
+    SPI.begin(SD_SCK, SD_MISO, SD_MOSI);
+
+    // Инициализация SD карты
+    if(!SD.begin(SD_CS)) {
+        Serial.println("Card Mount Failed");
+//        return;
+    } else {
+   // Проверка типа карты
+    uint8_t cardType = SD.cardType();
+    if(cardType == CARD_NONE) {
+            Serial.println("No SD card attached");
+            return;
+        }            
+    }
+
     Serial.println("Kayak Smart System Ready!");
     Serial.println("Type 'help' for available commands");
     Serial.print("Smart Kayak > ");

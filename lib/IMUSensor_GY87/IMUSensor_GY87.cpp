@@ -24,7 +24,8 @@ IMUSensor_GY87::IMUSensor_GY87(const char* prefsName, Stream* logStream)
       dmpReady(false),
       imuFrequency(GY87_IMU_DEFAULT_FREQUENCY),
       logStream(logStream ? logStream : &Serial),
-      interruptPin(-1) {
+      interruptPin(-1),
+      autoCalibrateMag(false) {
 }
 
 void IMUSensor_GY87::setDefaultCalibration() {
@@ -345,8 +346,9 @@ bool IMUSensor_GY87::readCalibrationData() {
         }
         setDefaultCalibration();
     }
-    
+    setMagMinMax();
     prefs.end();
+
     return success;
 }
 
@@ -425,6 +427,26 @@ void IMUSensor_GY87::update() {
     // Чтение и преобразование данных магнитометра
         int mx, my, mz;
         mag.read(&mx, &my, &mz);
+        
+        if(autoCalibrateMag) {
+            bool changed = false;
+            if (mx < magMinMax.min[0]) { magMinMax.min[0] = mx; changed = true; }
+            if (mx > magMinMax.max[0]) { magMinMax.max[0] = mx; changed = true; }
+            if (my < magMinMax.min[1]) { magMinMax.min[1] = my; changed = true; }
+            if (my > magMinMax.max[1]) { magMinMax.max[1] = my; changed = true; }
+            if (mz < magMinMax.min[2]) { magMinMax.min[2] = mz; changed = true; }
+            if (mz > magMinMax.max[2]) { magMinMax.max[2] = mz; changed = true; }
+            if (changed) {
+    // Вычисление параметров калибровки магнитометра
+                calibData.magOffset[0] = -(magMinMax.max[0] + magMinMax.min[0]) / 2;
+                calibData.magOffset[1] = -(magMinMax.max[1] + magMinMax.min[1]) / 2;
+                calibData.magOffset[2] = -(magMinMax.max[2] + magMinMax.min[2]) / 2;
+                
+                calibData.magScale[0] = 1000.0f / (float)(magMinMax.max[0] - magMinMax.min[0]);
+                calibData.magScale[1] = 1000.0f / (float)(magMinMax.max[1] - magMinMax.min[1]);
+                calibData.magScale[2] = 1000.0f / (float)(magMinMax.max[2] - magMinMax.min[2]);
+            }
+        }
     
     // Применяем калибровку к данным магнитометра
         currentData.mx = (mx + calibData.magOffset[0]) * calibData.magScale[0];
@@ -547,4 +569,25 @@ IMUCalibData& IMUSensor_GY87::getCalibrationData() {
 
 void IMUSensor_GY87::getData(IMUData& data) {
     data = currentData;
+}
+
+void IMUSensor_GY87::setMagMinMax() {
+    if (calibValid) {
+        magMinMax.min[0] = -1000/calibData.magScale[0] - calibData.magOffset[0];
+        magMinMax.max[0] = 1000/calibData.magScale[0] - calibData.magOffset[0];
+        magMinMax.min[1] = -1000/calibData.magScale[1] - calibData.magOffset[1];
+        magMinMax.max[1] = 1000/calibData.magScale[1] - calibData.magOffset[1];
+        magMinMax.min[2] = -1000/calibData.magScale[2] - calibData.magOffset[2];
+        magMinMax.max[2] = 1000/calibData.magScale[2] - calibData.magOffset[2];
+
+    }
+    else {
+        magMinMax.min[0] = 32767;
+        magMinMax.max[0] = -32768;
+        magMinMax.min[1] = 32767;
+        magMinMax.max[1] = -32768;
+        magMinMax.min[2] = 32767;
+        magMinMax.max[2] = -32768;
+    }
+
 }

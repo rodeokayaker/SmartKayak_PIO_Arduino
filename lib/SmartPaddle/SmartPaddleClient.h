@@ -96,6 +96,7 @@ public:
     BLEClient* getBLEClient() { return pClient; } // Для доступа к BLE клиенту
     void calibrateIMU() override;
     void calibrateLoads(BladeSideType blade_side) override;
+    void shutdown();
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

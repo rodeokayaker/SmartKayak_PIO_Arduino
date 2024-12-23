@@ -138,9 +138,9 @@ ButtonDriver::ButtonDriver(int pin) :
 
 void ButtonDriver::begin(int frequency) {
     main_frequency = frequency;
-    pinMode(pin, INPUT);
+    pinMode(pin, INPUT_PULLUP);
         
-    // ��астройка прерывания
+    // астройка прерывания
     attachInterruptArg(
         digitalPinToInterrupt(pin),
         buttonISR,
@@ -155,16 +155,33 @@ void ButtonDriver::update() {
 
 void IRAM_ATTR buttonISR(void* arg) {
     ButtonDriver* button = (ButtonDriver*)arg;
-    // Используем millis() для защиты от дребезга
     uint32_t now = millis();
+    
+    // Защита от дребезга
     if (now - button->last_state_change >= button->main_frequency) {
         button->last_state_change = now;
-        if (digitalRead(button->getPin()) == HIGH) {
+        
+        if (digitalRead(button->getPin()) == LOW) {
+            // Кнопка нажата
             button->state = BUTTON_PRESSED;
+            button->press_start_time = now;  // Запоминаем время начала нажатия
+            button->long_press_fired = false; // Сбрасываем флаг
+
             button->onPress();
         } else {
+            // Кнопка отпущена
+            // Проверка длительного нажатия
+            if (button->state == BUTTON_PRESSED && !button->long_press_fired) {
+                if (now - button->press_start_time >= 2000) { // 3 секунды
+                    button->long_press_fired = true;
+                    button->onLongPress();
+                }
+            }
             button->state = BUTTON_RELEASED;
+            button->press_start_time = 0;
             button->onRelease();
         }
     }
+    
+
 }
