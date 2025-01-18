@@ -6,6 +6,9 @@
 #include "IMUSensor_GY85.h"
 #include <Preferences.h>
 
+#define ADAPTIVE_GAIN 0.01f
+#define AUTO_CALIB_SAVE_INTERVAL 60000 // one time in 10 minutes if we update data 100HZ
+
 //-----------------------------------------------------------------------------
 // Конструктор и инициализация
 //-----------------------------------------------------------------------------
@@ -18,7 +21,8 @@ IMUSensor_GY85::IMUSensor_GY85(const char* prefs_Name, Stream* logStream) :
     log_imu(0), 
     logStream(logStream ? logStream : &Serial), 
     prefsName(prefs_Name),
-    imuFrequency(GY85_IMU_DEFAULT_FREQUENCY) {
+    imuFrequency(GY85_IMU_DEFAULT_FREQUENCY),
+    autoCalibCount(0) {
     
     madgwick.begin(imuFrequency);
 }
@@ -107,39 +111,131 @@ void IMUSensor_GY85::calibrate() {
     calibData.gyroOffset[1] = -gy_sum / samples;
     calibData.gyroOffset[2] = -gz_sum / samples;
     
-    // Калибровка магнитометра
-    logStream->println("Rotate device in all directions for magnetometer calibration");
-    int16_t mx_min = 32767, my_min = 32767, mz_min = 32767;
-    int16_t mx_max = -32768, my_max = -32768, mz_max = -32768;
+    // Калибровка магнитометра методом Ellipsoid Fitting
+    logStream->println("Rotate device in all directions for magnetometer calibration");    
+    const int samples_mag = 1000;
+    float magX[samples_mag], magY[samples_mag], magZ[samples_mag];
     
-    uint32_t startTime = millis();
-    while(millis() - startTime < 20000) {
+    for(int i = 0; i < samples_mag; i++) {
         int mx, my, mz;
         mag.read(&mx, &my, &mz);
-        
-        mx_min = std::min(mx_min, (int16_t)mx);
-        my_min = std::min(my_min, (int16_t)my);
-        mz_min = std::min(mz_min, (int16_t)mz);
-        
-        mx_max = std::max(mx_max, (int16_t)mx);
-        my_max = std::max(my_max, (int16_t)my);
-        mz_max = std::max(mz_max, (int16_t)mz);
-        
+        magX[i] = mx;
+        magY[i] = my;  
+        magZ[i] = mz;
         delay(10);
     }
     
-    // Вычисление параметров калибровки магнитометра
-    calibData.magOffset[0] = -(mx_max + mx_min) / 2;
-    calibData.magOffset[1] = -(my_max + my_min) / 2;
-    calibData.magOffset[2] = -(mz_max + mz_min) / 2;
+    // Вычисление параметров эллипсоида
+    float centerX, centerY, centerZ;
+    float scaleX, scaleY, scaleZ;
+    ellipsoidFitting(magX, magY, magZ, samples_mag, 
+                     &centerX, &centerY, &centerZ, 
+                     &scaleX, &scaleY, &scaleZ);
     
-    calibData.magScale[0] = 1000.0f / (float)(mx_max - mx_min);
-    calibData.magScale[1] = 1000.0f / (float)(my_max - my_min);
-    calibData.magScale[2] = 1000.0f / (float)(mz_max - mz_min);
+    // Установка калибровочных параметров
+    calibData.magOffset[0] = (int16_t)centerX;
+    calibData.magOffset[1] = (int16_t)centerY;
+    calibData.magOffset[2] = (int16_t)centerZ;
+    
+    calibData.magScale[0] = scaleX;
+    calibData.magScale[1] = scaleY;
+    calibData.magScale[2] = scaleZ;
     
     saveCalibrationData();
     calibValid = true;
     logStream->println("Calibration complete!");
+}
+
+void IMUSensor_GY85::ellipsoidFitting(float* x, float* y, float* z, int n,
+                                      float* centerX, float* centerY, float* centerZ,
+                                      float* scaleX, float* scaleY, float* scaleZ) {
+    // Вычисление средних значений
+    float avgX = 0, avgY = 0, avgZ = 0;
+    for(int i = 0; i < n; i++) {
+        avgX += x[i];
+        avgY += y[i];
+        avgZ += z[i];
+    }
+    avgX /= n;
+    avgY /= n;
+    avgZ /= n;
+
+    // Вычисление матрицы ковариации
+    float covXX = 0, covXY = 0, covXZ = 0, covYY = 0, covYZ = 0, covZZ = 0;
+    for(int i = 0; i < n; i++) {
+        float dx = x[i] - avgX;
+        float dy = y[i] - avgY;
+        float dz = z[i] - avgZ;
+        covXX += dx * dx;
+        covXY += dx * dy;
+        covXZ += dx * dz;
+        covYY += dy * dy;
+        covYZ += dy * dz;
+        covZZ += dz * dz;
+    }
+    covXX /= n;
+    covXY /= n;
+    covXZ /= n;
+    covYY /= n;
+    covYZ /= n;
+    covZZ /= n;
+
+    // Вычисление собственных значений и векторов матрицы ковариации
+    float a = covYY*covZZ - covYZ*covYZ;
+    float b = covXZ*covYZ - covXY*covZZ;
+    float c = covXY*covYZ - covXZ*covYY;
+    float d = covXX*covZZ - covXZ*covXZ;
+    float e = covXX*covYY - covXY*covXY;
+    float f = covXX*a + covXY*b + covXZ*c;
+
+    float q = (covXX + covYY + covZZ) / 3;
+    float p = (covXX - q)*(covXX - q) + (covYY - q)*(covYY - q) + (covZZ - q)*(covZZ - q) + 2*(covXY*covXY + covXZ*covXZ + covYZ*covYZ);
+    p = sqrt(p / 6);
+
+    float r = (1/p) * ((covXX - q)*(covYY - q)*(covZZ - q) + 2*covXY*covXZ*covYZ - (covXX - q)*covYZ*covYZ - (covYY - q)*covXZ*covXZ - (covZZ - q)*covXY*covXY);
+    r = r / 2;
+
+    float phi = acos(r) / 3;
+    float eig1 = q + 2*p*cos(phi);
+    float eig2 = q + 2*p*cos(phi + 2*M_PI/3);
+    float eig3 = 3*q - eig1 - eig2;
+
+    float vec1X = (a*(eig1 - covYY) - b*covXY) / (covXY*(eig1 - covYY) - (eig1 - covXX)*covYZ);
+    float vec1Y = (b*(eig1 - covXX) - a*covXY) / (covXY*(eig1 - covYY) - (eig1 - covXX)*covYZ);
+    float vec1Z = 1;
+
+    float vec2X = (a*(eig2 - covYY) - b*covXY) / (covXY*(eig2 - covYY) - (eig2 - covXX)*covYZ);
+    float vec2Y = (b*(eig2 - covXX) - a*covXY) / (covXY*(eig2 - covYY) - (eig2 - covXX)*covYZ);
+    float vec2Z = 1;
+
+    float vec3X = vec1Y*vec2Z - vec1Z*vec2Y;
+    float vec3Y = vec1Z*vec2X - vec1X*vec2Z;
+    float vec3Z = vec1X*vec2Y - vec1Y*vec2X;
+
+    // Нормализация собственных векторов
+    float norm1 = sqrt(vec1X*vec1X + vec1Y*vec1Y + vec1Z*vec1Z);
+    vec1X /= norm1;
+    vec1Y /= norm1;
+    vec1Z /= norm1;
+
+    float norm2 = sqrt(vec2X*vec2X + vec2Y*vec2Y + vec2Z*vec2Z);
+    vec2X /= norm2;
+    vec2Y /= norm2;
+    vec2Z /= norm2;
+
+    float norm3 = sqrt(vec3X*vec3X + vec3Y*vec3Y + vec3Z*vec3Z);
+    vec3X /= norm3;
+    vec3Y /= norm3;
+    vec3Z /= norm3;
+
+    // Вычисление параметров эллипсоида
+    *centerX = avgX;
+    *centerY = avgY;
+    *centerZ = avgZ;
+
+    *scaleX = 1.0f / sqrt(eig1);
+    *scaleY = 1.0f / sqrt(eig2);
+    *scaleZ = 1.0f / sqrt(eig3);
 }
 
 //-----------------------------------------------------------------------------
@@ -169,10 +265,12 @@ void IMUSensor_GY85::getData(IMUData& data) {
     // Чтение и калибровка магнитометра
     int mx, my, mz;
     mag.read(&mx, &my, &mz);
-    data.mx = ((float)mx + calibData.magOffset[0]) * calibData.magScale[0];
-    data.my = ((float)my + calibData.magOffset[1]) * calibData.magScale[1];
-    data.mz = ((float)mz + calibData.magOffset[2]) * calibData.magScale[2];
+    data.mx = (((float)mx - calibData.magOffset[0]) * calibData.magScale[0]);
+    data.my = (((float)my - calibData.magOffset[1]) * calibData.magScale[1]);
+    data.mz = (((float)mz - calibData.magOffset[2]) * calibData.magScale[2]);
+    
 
+    
     // Получение кватерниона ориентации
     madgwick.getQuaternion(&data.q0);
     
@@ -188,11 +286,52 @@ void IMUSensor_GY85::getData(IMUData& data) {
 
 void IMUSensor_GY85::update() {
     getData(currentData);
+    
+    // Обновление фильтра Madgwick
     madgwick.update(
         currentData.gx, currentData.gy, currentData.gz,
         currentData.ax, currentData.ay, currentData.az,
         currentData.mx, currentData.my, currentData.mz
     );
+    
+    // Адаптивная калибровка магнитометра по данным фильтра Madgwick
+    AHRSQuaternion q = madgwick.getQuaternion();
+    adaptiveCalibrateMagnetometer((float*)&q);
+  
+    autoCalibCount++;
+
+        // Периодически сохраняем калибровку в память
+    if(autoCalibCount % AUTO_CALIB_SAVE_INTERVAL == 0) {
+        saveCalibrationData();
+    }
+    
+}
+
+void IMUSensor_GY85::adaptiveCalibrateMagnetometer(float* q) {
+    // Получение оценки направления магнитного поля Земли из кватерниона ориентации
+    float bx = 2.0f * (q[1]*q[3] - q[0]*q[2]);
+    float by = 2.0f * (q[0]*q[1] + q[2]*q[3]);
+    float bz = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
+    
+    float bNorm = sqrt(bx*bx + by*by + bz*bz);
+    bx /= bNorm;
+    by /= bNorm;
+    bz /= bNorm;
+    
+    // Обновление смещений и масштабов по разнице между оценкой и измерением
+    float magError;
+    magError = currentData.mx - bx;
+    calibData.magOffset[0] -= magError * ADAPTIVE_GAIN;
+    calibData.magScale[0] *= 1.0f / (bx + magError);
+
+    magError = currentData.my - by;
+    calibData.magOffset[1] -= magError * ADAPTIVE_GAIN;
+    calibData.magScale[1] *= 1.0f / (by + magError);
+
+    magError = currentData.mz - bz;
+    calibData.magOffset[2] -= magError * ADAPTIVE_GAIN;
+    calibData.magScale[2] *= 1.0f / (bz + magError);
+    
 }
 
 //-----------------------------------------------------------------------------
@@ -224,6 +363,17 @@ bool IMUSensor_GY85::readCalibrationData() {
 // Вспомогательные методы
 //-----------------------------------------------------------------------------
 
+void IMUSensor_GY85::setCalibrationData(const IMUCalibData data, bool save) {
+    calibData = data;
+    if(save) {
+        saveCalibrationData();
+    }
+}
+
+IMUCalibData IMUSensor_GY85::getCalibrationData() {
+    return calibData;
+}
+
 IMUData IMUSensor_GY85::getData() {
     getData(currentData);
     return currentData;
@@ -254,10 +404,6 @@ void IMUSensor_GY85::setLogStream(Stream* stream) {
 
 bool IMUSensor_GY85::isCalibrationValid() {
     return calibValid;
-}
-
-IMUCalibData& IMUSensor_GY85::getCalibrationData() {
-    return calibData;
 }
 
 IMUSensor_GY85::~IMUSensor_GY85() {

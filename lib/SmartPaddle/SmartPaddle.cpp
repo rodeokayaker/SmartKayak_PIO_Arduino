@@ -34,7 +34,7 @@ namespace SmartPaddleUUID {
 #define RX_BUFFER_SIZE 4096
 
 
-int BLEMTU = max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData), sizeof(PaddleStatus), sizeof(PaddleSpecs), sizeof(BladeData)})+4;
+int BLEMTU = 256; //max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData), sizeof(PaddleStatus), sizeof(PaddleSpecs), sizeof(BladeData)})+4;
 std::map<void*, SmartPaddle*> PaddleMap = {} ;
 
 bool log_imu = false;

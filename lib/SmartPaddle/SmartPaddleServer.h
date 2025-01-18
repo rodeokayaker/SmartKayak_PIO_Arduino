@@ -84,6 +84,14 @@ public:
     void setLogInterface(ILogInterface* logInterface){this->logInterface=logInterface;}
     void shutdown();
     void setPowerPin(int pin){power_pin=pin;}
+
+    IMUData getIMUData() override;
+    loadData getLoadData() override;
+    OrientationData getOrientationData() override;
+
+    uint32_t paddleMillis() override {return ::millis();}
+
+
 }; 
 
 #endif // SMARTPADDLE_BLE_SERVER_H

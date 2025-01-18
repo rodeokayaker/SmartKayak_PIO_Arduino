@@ -133,14 +133,37 @@ LEDDriver::~LEDDriver() {
 // Реализация ButtonDriver
 ButtonDriver::ButtonDriver(int pin) : 
     pin(pin), 
-    state(BUTTON_RELEASED), 
-    last_state_change(0) {}
+    state(BUTTON_RELEASED),
+    longPressTimer(nullptr),
+    debounceTimer(nullptr),
+    long_press_fired(false),
+    last_pin_state(HIGH) {}
 
 void ButtonDriver::begin(int frequency) {
     main_frequency = frequency;
+    digitalWrite(pin, HIGH);
     pinMode(pin, INPUT_PULLUP);
+    last_pin_state = digitalRead(pin);
+    
+    // Создаем таймер для длинного нажатия
+    longPressTimer = xTimerCreate(
+        "LongPress_Timer",
+        pdMS_TO_TICKS(3000), // 3 секунды
+        pdFALSE,  // Одноразовый таймер
+        this,     // ID таймера - указатель на объект
+        longPressTimerCallback
+    );
+
+    // Создаем таймер для защиты от дребезга
+    debounceTimer = xTimerCreate(
+        "Debounce_Timer",
+        pdMS_TO_TICKS(main_frequency),
+        pdFALSE,  // Одноразовый таймер
+        this,     // ID таймера - указатель на объект
+        debounceTimerCallback
+    );
         
-    // астройка прерывания
+    // Настройка прерывания
     attachInterruptArg(
         digitalPinToInterrupt(pin),
         buttonISR,
@@ -149,39 +172,51 @@ void ButtonDriver::begin(int frequency) {
     );
 }
 
-void ButtonDriver::update() {
-    // В этой реализации основная обработка происходит в прерывании
-}
-
 void IRAM_ATTR buttonISR(void* arg) {
     ButtonDriver* button = (ButtonDriver*)arg;
-    uint32_t now = millis();
     
-    // Защита от дребезга
-    if (now - button->last_state_change >= button->main_frequency) {
-        button->last_state_change = now;
+    // Только планируем проверку состояния через таймер
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    if (button->debounceTimer) {
+        xTimerStartFromISR(button->debounceTimer, &xHigherPriorityTaskWoken);
+    }
+}
+
+void ButtonDriver::debounceTimerCallback(TimerHandle_t timer) {
+    ButtonDriver* button = static_cast<ButtonDriver*>(pvTimerGetTimerID(timer));
+    uint8_t current_pin_state = digitalRead(button->pin);
+    
+    // Проверяем, действительно ли изменилось состояние
+    if (current_pin_state != button->last_pin_state) {
+        button->last_pin_state = current_pin_state;
         
-        if (digitalRead(button->getPin()) == LOW) {
+        if (current_pin_state == LOW) {
             // Кнопка нажата
             button->state = BUTTON_PRESSED;
-            button->press_start_time = now;  // Запоминаем время начала нажатия
-            button->long_press_fired = false; // Сбрасываем флаг
-
+            button->long_press_fired = false;
             button->onPress();
+            
+            // Запускаем таймер длинного нажатия
+            if (button->longPressTimer) {
+                xTimerStart(button->longPressTimer, 0);
+            }
         } else {
             // Кнопка отпущена
-            // Проверка длительного нажатия
-            if (button->state == BUTTON_PRESSED && !button->long_press_fired) {
-                if (now - button->press_start_time >= 2000) { // 3 секунды
-                    button->long_press_fired = true;
-                    button->onLongPress();
-                }
-            }
             button->state = BUTTON_RELEASED;
-            button->press_start_time = 0;
             button->onRelease();
+            
+            // Останавливаем таймер длинного нажатия
+            if (button->longPressTimer) {
+                xTimerStop(button->longPressTimer, 0);
+            }
         }
     }
-    
+}
 
+void ButtonDriver::longPressTimerCallback(TimerHandle_t timer) {
+    ButtonDriver* button = static_cast<ButtonDriver*>(pvTimerGetTimerID(timer));
+    if (button->state == BUTTON_PRESSED && !button->long_press_fired) {
+        button->long_press_fired = true;
+        button->onLongPress();
+    }
 }

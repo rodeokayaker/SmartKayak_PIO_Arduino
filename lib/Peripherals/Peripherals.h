@@ -52,21 +52,23 @@ enum BUTTON_STATE {
 class ButtonDriver {
 protected:
     int pin;
-    uint32_t last_state_change;
     BUTTON_STATE state;
     int main_frequency;
-    uint32_t press_start_time;  // Время начала нажатия
+    TimerHandle_t longPressTimer;  // Таймер для длинного нажатия
+    TimerHandle_t debounceTimer;   // Таймер для защиты от дребезга
     bool long_press_fired;      // Флаг срабатывания длительного нажатия
-
+    uint8_t last_pin_state;     // Последнее состояние пина
+    static void longPressTimerCallback(TimerHandle_t timer);
+    static void debounceTimerCallback(TimerHandle_t timer);
 
 public:
     ButtonDriver(int pin);
-    void begin(int frequency=100);
-    virtual void update();
+    void begin(int frequency=10);
     bool isPressed() { return state == BUTTON_PRESSED; }
     BUTTON_STATE getState() { return state; }
     int getPin() { return pin; }
     int getFrequency() { return main_frequency; }
+    bool isLongPressed() { return long_press_fired; }
     
     // Виртуальные функции для обработки событий
     virtual void onPress() =0;
@@ -75,6 +77,8 @@ public:
     
     friend void IRAM_ATTR buttonISR(void* arg);
     virtual ~ButtonDriver() = default;
+    
+
 };
 
 // Обработчик прерывания для кнопки

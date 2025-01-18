@@ -35,8 +35,18 @@ class SerialServer_MessageHandler: public BLESerialMessageHandler{
             return;
         }
         if (strcmp(command, "calibrate_loads") == 0) {
-            paddle->setLogStream(paddle->getSerial());
-            paddle->calibrateLoads(ALL_BLADES);
+            if (params["blade_side"].is<int>()) {
+                BladeSideType side = (BladeSideType)params["blade_side"];
+                if (side == LEFT_BLADE) {
+                    paddle->calibrateLoads(LEFT_BLADE);
+                } else if (side == RIGHT_BLADE) {
+                    paddle->calibrateLoads(RIGHT_BLADE);
+                } else if (side == ALL_BLADES) {
+                    paddle->calibrateLoads(ALL_BLADES);
+                }
+            } else {
+                paddle->calibrateLoads(ALL_BLADES);
+            }
             paddle->setLogStream(&Serial);
             return;
         }
@@ -51,7 +61,7 @@ class SerialServer_MessageHandler: public BLESerialMessageHandler{
             paddle->calibrateLoads(RIGHT_BLADE);
             paddle->setLogStream(&Serial);
             return;
-        }        
+        }     
 
         if (strcmp(command, "send_specs") == 0) {
             paddle->sendSpecs();
@@ -91,9 +101,9 @@ void SmartPaddleBLEServer::updateIMU() {
         OrientationData orientation = imu->getOrientation();
         orientationQueue.send(orientation);
 
-        if (logInterface)
+/*        if (logInterface)
             logInterface->logQuaternion(&orientation.q0);
-
+*/
     }
 }
 
@@ -523,4 +533,23 @@ void SmartPaddleBLEServer::shutdown() {
         logStream->println("Shutdown Paddle");
     delay(100);
     if (power_pin>=0) digitalWrite(power_pin, LOW);
+}
+
+IMUData SmartPaddleBLEServer::getIMUData(){
+    return imu->getData();
+}
+
+loadData SmartPaddleBLEServer::getLoadData(){
+    loadData data;
+    data.forceR = (int32_t)loads[0]->getForce();
+    if (loads[1])
+        data.forceL = (int32_t)loads[1]->getForce();
+    else
+        data.forceL = 0;
+    data.timestamp=millis();    
+    return data;
+}
+
+OrientationData SmartPaddleBLEServer::getOrientationData(){
+    return imu->getOrientation();
 }

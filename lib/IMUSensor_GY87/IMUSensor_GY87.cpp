@@ -8,6 +8,10 @@
 
 #include "IMUSensor_GY87.h"
 #include <Preferences.h>
+#include "CalibrationUtils.h"
+
+#define ADAPTIVE_GAIN 0.001f
+#define AUTO_CALIB_SAVE_INTERVAL 60000 // one time in 10 minutes if we update data 100HZ
 
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -25,7 +29,8 @@ IMUSensor_GY87::IMUSensor_GY87(const char* prefsName, Stream* logStream)
       imuFrequency(GY87_IMU_DEFAULT_FREQUENCY),
       logStream(logStream ? logStream : &Serial),
       interruptPin(-1),
-      autoCalibrateMag(false) {
+      autoCalibrateMag(false),
+      autoCalibCount(0) {
 }
 
 void IMUSensor_GY87::setDefaultCalibration() {
@@ -42,7 +47,6 @@ void IMUSensor_GY87::setDefaultCalibration() {
         calibData.magOffset[i] = 0;
         calibData.magScale[i] = 1.0f;
     }
-
     // Применяем значения по умолчанию к устройствам
     mpu.setXAccelOffset(0);
     mpu.setYAccelOffset(0);
@@ -60,9 +64,8 @@ void IMUSensor_GY87::setDefaultCalibration() {
 
 bool IMUSensor_GY87::begin() {
 
-    madgwick.begin(imuFrequency);    
+    madgwick.begin(imuFrequency); 
     Wire.setClock(400000); // 400kHz I2C clock.
-    
     // Инициализация MPU6050
     mpu.initialize();
 
@@ -171,7 +174,7 @@ void IMUSensor_GY87::calibrate() {
     delay(2000);  // Даем время пользователю подготовиться
     
     logStream->println("Calibrating gyroscope and accelerometer...");
-    
+
     // Используем встроенную функцию автокалибровки MPU6050
     mpu.CalibrateAccel(6);  // 6 итераций для точности
     mpu.CalibrateGyro(6);   // 6 итераций для точности
@@ -216,52 +219,9 @@ void IMUSensor_GY87::calibrate() {
         calibData.gyroOffset[2]);
     
     // Этап 2: Калибровка магнитометра QMC5883L
-    logStream->println("\nRotate device in all directions for magnetometer calibration");
-    logStream->println("This will take 20 seconds...");
+    initialCalibrateMagnetometer(true, false);
     
-    // Запускаем калибровку магнитометра
-    int mx_min = 32767, my_min = 32767, mz_min = 32767;
-    int mx_max = -32768, my_max = -32768, mz_max = -32768;
-    
-    uint32_t startTime = millis();
-        
-    while(millis() - startTime < 20000) {
-
-        int mx, my, mz;
-        mag.read(&mx, &my, &mz);
-        
-        
-        mx_min = std::min(mx_min, mx);
-        my_min = std::min(my_min, my);
-        mz_min = std::min(mz_min, mz);
-        
-        mx_max = std::max(mx_max, mx);
-        my_max = std::max(my_max, my);
-        mz_max = std::max(mz_max, mz);
-        
-        delay(10);
-    }
-    
-    // Вычисление параметров калибровки магнитометра
-    calibData.magOffset[0] = -(mx_max + mx_min) / 2;
-    calibData.magOffset[1] = -(my_max + my_min) / 2;
-    calibData.magOffset[2] = -(mz_max + mz_min) / 2;
-    
-    calibData.magScale[0] = 1000.0f / (float)(mx_max - mx_min);
-    calibData.magScale[1] = 1000.0f / (float)(my_max - my_min);
-    calibData.magScale[2] = 1000.0f / (float)(mz_max - mz_min);
-    
-    logStream->println("Magnetometer calibration complete");
-    logStream->println("Offsets and scales:");
-    logStream->printf("Mag offsets: X=%.2f Y=%.2f Z=%.2f\n",
-        calibData.magOffset[0],
-        calibData.magOffset[1],
-        calibData.magOffset[2]);
-    logStream->printf("Mag scales: X=%.2f Y=%.2f Z=%.2f\n",
-        calibData.magScale[0],
-        calibData.magScale[1],
-        calibData.magScale[2]);
-    
+     
     // Применяем калибровку к DMP
     mpu.setXAccelOffset(calibData.accelOffset[0]);
     mpu.setYAccelOffset(calibData.accelOffset[1]);
@@ -278,6 +238,199 @@ void IMUSensor_GY87::calibrate() {
     logStream->println("\nCalibration complete!");
     logStream->println("Calibration data has been saved");
 }
+
+
+
+void IMUSensor_GY87::initialCalibrateMagnetometer(bool ransac, bool geometric) {
+    const int samples = 2000;
+    float* x = nullptr;
+    float* y = nullptr;
+    float* z = nullptr;
+
+    if (geometric||ransac) {
+        x = new float[samples];
+        y = new float[samples];
+        z = new float[samples];
+    }
+    
+    // 1. Сбор данных и калибровка по минимуму и максимуму
+
+    int16_t minX = 32767, maxX = -32767;
+    int16_t minY = 32767, maxY = -32767;
+    int16_t minZ = 32767, maxZ = -32767;
+
+    logStream->println("\nRotate device in all directions for magnetometer calibration");
+    logStream->println("This will take 20 seconds...");
+
+    for(int i = 0; i < samples; i++) {
+        int mx, my, mz;
+        mag.read(&mx, &my, &mz);
+        if (geometric||ransac) {
+            x[i] = mx;
+            y[i] = my;
+            z[i] = mz;
+        }
+        if(mx < minX) minX = mx;
+        if(mx > maxX) maxX = mx;
+        if(my < minY) minY = my;
+        if(my > maxY) maxY = my;
+        if(mz < minZ) minZ = mz;
+        if(mz > maxZ) maxZ = mz;
+        delay(10);
+    }
+    
+    
+    calibData.magOffset[0] = (maxX + minX) / 2;
+    calibData.magOffset[1] = (maxY + minY) / 2;
+    calibData.magOffset[2] = (maxZ + minZ) / 2;
+        
+    calibData.magScale[0] = 2.0f / (maxX - minX);
+    calibData.magScale[1] = 2.0f / (maxY - minY);
+    calibData.magScale[2] = 2.0f / (maxZ - minZ);
+
+    if (!geometric&&!ransac)
+    {
+
+        logStream->println("Magnetometer calibration completed");
+        logStream->printf("Offset: [%f, %f, %f]\n", 
+                  calibData.magOffset[0], 
+                  calibData.magOffset[1], 
+                  calibData.magOffset[2]);
+        logStream->printf("Scale: [%f, %f, %f]\n", 
+                  calibData.magScale[0], 
+                  calibData.magScale[1], 
+                  calibData.magScale[2]);
+        return;
+    }
+
+
+    
+    bool* inliers = nullptr;
+    float centerX=(maxX+minX)/2, centerY=(maxY+minY)/2, centerZ=(maxZ+minZ)/2;
+    float radX=(maxX-minX)/2, radY=(maxY-minY)/2, radZ=(maxZ-minZ)/2;
+
+    logStream->printf("Initial center: %f %f %f\n", centerX, centerY, centerZ);
+    logStream->printf("Initial radius: %f %f %f\n", radX, radY, radZ);
+
+    // 4. RANSAC фильтрация и оценка параметров
+    if (ransac) {
+        logStream->printf("RANSAC filtering...\n");
+        // Нормализация данных
+        for(int i = 0; i < samples; i++) {
+            x[i] = (x[i] - centerX) / radX;
+            y[i] = (y[i] - centerY) / radY;
+            z[i] = (z[i] - centerZ) / radZ;
+        }
+
+        inliers = new bool[samples];    
+    
+        const float ransacThreshold = 0.2f*max(max(radX, radY), radZ);
+        const int maxIterations = 100;
+    
+
+    
+        CalibrationUtils::ransacEllipsoidFilter(x, y, z, inliers, samples, ransacThreshold, maxIterations,
+                             &centerX, &centerY, &centerZ, &radX, &radY, &radZ);
+
+        calibData.magOffset[0] = centerX/calibData.magScale[0] + calibData.magOffset[0];
+        calibData.magOffset[1] = centerY/calibData.magScale[1] + calibData.magOffset[1];
+        calibData.magOffset[2] = centerZ/calibData.magScale[2] + calibData.magOffset[2];
+    
+        calibData.magScale[0] *= 1.0f/radX;
+        calibData.magScale[1] *= 1.0f/radY;
+        calibData.magScale[2] *= 1.0f/radZ;
+
+        logStream->printf("RANSAC center: %f %f %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
+        logStream->printf("RANSAC radius: %f %f %f\n", 1/calibData.magScale[0], 1/calibData.magScale[1], 1/calibData.magScale[2]);
+    } else{
+        centerX=(maxX+minX)/2;
+        centerY=(maxY+minY)/2;
+        centerZ=(maxZ+minZ)/2;
+        radX=(maxX-minX)/2;
+        radY=(maxY-minY)/2;
+        radZ=(maxZ-minZ)/2;
+    }
+    
+    if (geometric) {
+        // Нормализация данных
+        for(int i = 0; i < samples; i++) {
+            x[i] = (x[i] - centerX) / radX;
+            y[i] = (y[i] - centerY) / radY;
+            z[i] = (z[i] - centerZ) / radZ;
+        }
+        centerX = 0;
+        centerY = 0;
+        centerZ = 0;
+        radX = 1;
+        radY = 1;
+        radZ = 1;
+
+        logStream->printf("Geometric calibration...\n");
+        CalibrationUtils::geometricCalibration(x, y, z, samples, centerX, centerY, centerZ, radX, radY, radZ, 100, 0.001, inliers);
+
+        calibData.magOffset[0] = centerX/calibData.magScale[0] + calibData.magOffset[0];
+        calibData.magOffset[1] = centerY/calibData.magScale[1] + calibData.magOffset[1];
+        calibData.magOffset[2] = centerZ/calibData.magScale[2] + calibData.magOffset[2];
+    
+        calibData.magScale[0] *= 1.0f/radX;
+        calibData.magScale[1] *= 1.0f/radY;
+        calibData.magScale[2] *= 1.0f/radZ;        
+
+        logStream->printf("Geometric center: %f %f %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
+        logStream->printf("Geometric radius: %f %f %f\n", 1/calibData.magScale[0], 1/calibData.magScale[1], 1/calibData.magScale[2]);
+    }
+    
+    delete[] x;
+    delete[] y;
+    delete[] z;
+    if (inliers) delete[] inliers;
+
+    
+    logStream->println("Magnetometer calibration completed");
+    logStream->printf("Offset: [%f, %f, %f]\n", 
+                  calibData.magOffset[0], 
+                  calibData.magOffset[1], 
+                  calibData.magOffset[2]);
+    logStream->printf("Scale: [%f, %f, %f]\n", 
+                  calibData.magScale[0], 
+                  calibData.magScale[1], 
+                  calibData.magScale[2]);
+}
+
+void IMUSensor_GY87::adaptiveCalibrateMagnetometer(float* q) {
+    // Извлечение оценки направления магнитного поля из кватерниона ориентации
+    float bx = 2.0f * (q[1]*q[3] - q[0]*q[2]);
+    float by = 2.0f * (q[0]*q[1] + q[2]*q[3]);
+    float bz = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
+    
+    float bNorm = sqrt(bx*bx + by*by + bz*bz);
+    bx /= bNorm;
+    by /= bNorm;
+    bz /= bNorm;
+
+    float magNorm = sqrt(currentData.mx*currentData.mx + currentData.my*currentData.my + currentData.mz*currentData.mz);
+    
+    // Вычисление ошибки между оценкой и текущими измерениями магнитометра
+    float magError;
+    magError = bx - currentData.mx;
+    calibData.magOffset[0] -= magError * ADAPTIVE_GAIN/calibData.magScale[0];
+    if (currentData.mx > 0.001 || currentData.mx < -0.001) {
+        calibData.magScale[0] *= 1.0f + magError*ADAPTIVE_GAIN/currentData.mx;
+    }
+    
+    magError = by - currentData.my;
+    calibData.magOffset[1] -= magError * ADAPTIVE_GAIN/calibData.magScale[1];
+    if (currentData.my > 0.001 || currentData.my < -0.001) {
+        calibData.magScale[1] *= 1.0f + magError*ADAPTIVE_GAIN/currentData.my;
+    }
+    
+    magError = bz - currentData.mz;
+    calibData.magOffset[2] -= magError * ADAPTIVE_GAIN/calibData.magScale[2];
+    if (currentData.mz > 0.001 || currentData.mz < -0.001) {
+        calibData.magScale[2] *= 1.0f + magError*ADAPTIVE_GAIN/currentData.mz;
+    }
+}
+
 
 void IMUSensor_GY87::saveCalibrationData() {
     Preferences prefs;
@@ -346,7 +499,6 @@ bool IMUSensor_GY87::readCalibrationData() {
         }
         setDefaultCalibration();
     }
-    setMagMinMax();
     prefs.end();
 
     return success;
@@ -365,18 +517,6 @@ void IMUSensor_GY87::resetCalibration() {
     if(log_imu > 0) {
         logStream->println("Calibration data reset to defaults");
     }
-}
-
-float IMUSensor_GY87::convertRawAcceleration(int16_t aRaw) {
-    return aRaw / 8192.0f;  // для диапазона ±4g
-}
-
-float IMUSensor_GY87::convertRawGyro(int16_t gRaw) {
-    return gRaw / 65.5f;    // для диапазона ±500°/s
-}
-
-float IMUSensor_GY87::convertRawCompass(int mag) {
-    return mag / 3000.0f;    // нормализация
 }
 
 void IMUSensor_GY87::getQuaternion(float* quat) {
@@ -415,46 +555,29 @@ void IMUSensor_GY87::update() {
         mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
             
         // Преобразование в физические величины
-        currentData.ax = convertRawAcceleration(ax);
-        currentData.ay = convertRawAcceleration(ay);
-        currentData.az = convertRawAcceleration(az);
-        currentData.gx = convertRawGyro(gx);
-        currentData.gy = convertRawGyro(gy);
-        currentData.gz = convertRawGyro(gz);
+        currentData.ax = ax*calibData.accelScale[0];
+        currentData.ay = ay*calibData.accelScale[1];
+        currentData.az = az*calibData.accelScale[2];
+        currentData.gx = gx*calibData.gyroScale[0];
+        currentData.gy = gy*calibData.gyroScale[1];
+        currentData.gz = gz*calibData.gyroScale[2];
             
         // Чтение магнитометра
 
     // Чтение и преобразование данных магнитометра
         int mx, my, mz;
         mag.read(&mx, &my, &mz);
-        
-        if(autoCalibrateMag) {
-            bool changed = false;
-            if (mx < magMinMax.min[0]) { magMinMax.min[0] = mx; changed = true; }
-            if (mx > magMinMax.max[0]) { magMinMax.max[0] = mx; changed = true; }
-            if (my < magMinMax.min[1]) { magMinMax.min[1] = my; changed = true; }
-            if (my > magMinMax.max[1]) { magMinMax.max[1] = my; changed = true; }
-            if (mz < magMinMax.min[2]) { magMinMax.min[2] = mz; changed = true; }
-            if (mz > magMinMax.max[2]) { magMinMax.max[2] = mz; changed = true; }
-            if (changed) {
-    // Вычисление параметров калибровки магнитометра
-                calibData.magOffset[0] = -(magMinMax.max[0] + magMinMax.min[0]) / 2;
-                calibData.magOffset[1] = -(magMinMax.max[1] + magMinMax.min[1]) / 2;
-                calibData.magOffset[2] = -(magMinMax.max[2] + magMinMax.min[2]) / 2;
-                
-                calibData.magScale[0] = 1000.0f / (float)(magMinMax.max[0] - magMinMax.min[0]);
-                calibData.magScale[1] = 1000.0f / (float)(magMinMax.max[1] - magMinMax.min[1]);
-                calibData.magScale[2] = 1000.0f / (float)(magMinMax.max[2] - magMinMax.min[2]);
-            }
-        }
+        currentData.mag_x = mx;
+        currentData.mag_y = my;
+        currentData.mag_z = mz;
     
     // Применяем калибровку к данным магнитометра
-        currentData.mx = (mx + calibData.magOffset[0]) * calibData.magScale[0];
-        currentData.my = (my + calibData.magOffset[1]) * calibData.magScale[1];
-        currentData.mz = (mz + calibData.magOffset[2]) * calibData.magScale[2];
+        currentData.mx = (mx - calibData.magOffset[0]) * calibData.magScale[0];
+        currentData.my = (my - calibData.magOffset[1]) * calibData.magScale[1];
+        currentData.mz = (mz - calibData.magOffset[2]) * calibData.magScale[2];
     
 
-        if(log_imu > 1) {
+        if(log_imu > 2) {
             logStream->printf("Raw mag: %d %d %d\n", mx, my, mz);
             logStream->printf("Calibrated mag: %.2f %.2f %.2f\n", 
                 currentData.mx, currentData.my, currentData.mz);
@@ -469,7 +592,7 @@ void IMUSensor_GY87::update() {
             
         currentData.timestamp = millis();
 
-        if(log_imu > 1) {  // Расширенное логирование
+        if(log_imu > 2) {  // Расширенное логирование
             logStream->printf("Accel: %.3f %.3f %.3f\n", 
                 currentData.ax, currentData.ay, currentData.az);
             logStream->printf("Gyro: %.3f %.3f %.3f\n", 
@@ -485,6 +608,21 @@ void IMUSensor_GY87::update() {
         currentData.ax, currentData.ay, currentData.az,
         currentData.mx, currentData.my, currentData.mz
     );
+
+    if (autoCalibrateMag) {
+        // Адаптивная калибровка магнитометра по данным фильтра Madgwick
+        AHRSQuaternion q = madgwick.getQuaternion();
+        adaptiveCalibrateMagnetometer((float*)&q);
+  
+        autoCalibCount++;
+
+        // Периодически сохраняем калибровку в память
+        if(autoCalibCount % AUTO_CALIB_SAVE_INTERVAL == 0) {
+            saveCalibrationData();
+        }
+    }
+    
+
 }
 
 OrientationData IMUSensor_GY87::getOrientation() {
@@ -563,31 +701,25 @@ void IMUSensor_GY87::getSmoothedReadings(int16_t* readings, int samples) {
     }
 }
 
-IMUCalibData& IMUSensor_GY87::getCalibrationData() {
-    return calibData;
-}
-
 void IMUSensor_GY87::getData(IMUData& data) {
     data = currentData;
 }
 
-void IMUSensor_GY87::setMagMinMax() {
-    if (calibValid) {
-        magMinMax.min[0] = -1000/calibData.magScale[0] - calibData.magOffset[0];
-        magMinMax.max[0] = 1000/calibData.magScale[0] - calibData.magOffset[0];
-        magMinMax.min[1] = -1000/calibData.magScale[1] - calibData.magOffset[1];
-        magMinMax.max[1] = 1000/calibData.magScale[1] - calibData.magOffset[1];
-        magMinMax.min[2] = -1000/calibData.magScale[2] - calibData.magOffset[2];
-        magMinMax.max[2] = 1000/calibData.magScale[2] - calibData.magOffset[2];
-
+void IMUSensor_GY87::setCalibrationData(const IMUCalibData data, bool save) {
+    calibData = data;
+    mpu.setXAccelOffset(calibData.accelOffset[0]);
+    mpu.setYAccelOffset(calibData.accelOffset[1]);
+    mpu.setZAccelOffset(calibData.accelOffset[2]);
+    mpu.setXGyroOffset(calibData.gyroOffset[0]);
+    mpu.setYGyroOffset(calibData.gyroOffset[1]);
+    mpu.setZGyroOffset(calibData.gyroOffset[2]);
+                    
+    calibValid = true;    
+    if(save) {
+        saveCalibrationData();
     }
-    else {
-        magMinMax.min[0] = 32767;
-        magMinMax.max[0] = -32768;
-        magMinMax.min[1] = 32767;
-        magMinMax.max[1] = -32768;
-        magMinMax.min[2] = 32767;
-        magMinMax.max[2] = -32768;
-    }
+}
 
+IMUCalibData IMUSensor_GY87::getCalibrationData() {
+    return calibData;
 }

@@ -139,6 +139,8 @@ bool SP_BLESerial::updateJSON(bool printOther)
 }
 
 void SP_BLESerial::processJsonMessage(char* message) {
+    Serial.printf("processJsonMessage: %s\n", message);
+    
     DeserializationError error = deserializeJson(jsonDoc, message);
     if(error || !messageHandler) return;
 

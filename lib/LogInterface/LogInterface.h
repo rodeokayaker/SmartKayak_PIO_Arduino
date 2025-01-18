@@ -3,15 +3,17 @@
 
 #include <Stream.h>
 #include <Arduino.h>
-
+#include "InterfaceLoadCell.h"
+#include "InterfaceIMU.h"
 class ILogInterface: public Stream{
     public:
 
 //Log interface
-    virtual void logQuaternion(const float* q)=0;
-
+    virtual void logQuaternion(const float* q){};
+    virtual void logLoads(const float* loads){};
+    virtual void logIMU(const float* imu){};
     // Stream implementation
-    virtual int available() override 
+/*    virtual int available() override 
     {
         return Serial.available();
     };
@@ -38,9 +40,7 @@ class ILogInterface: public Stream{
     virtual void flush() override
     {
         Serial.flush();
-    };    
-
-
+    };    */
     virtual ~ILogInterface()=default;
 };
 

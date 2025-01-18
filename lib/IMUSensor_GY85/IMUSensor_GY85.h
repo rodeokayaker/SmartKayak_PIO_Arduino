@@ -26,25 +26,6 @@
 /** @brief Частота обновления IMU по умолчанию (Гц) */
 #define GY85_IMU_DEFAULT_FREQUENCY 98
 
-/**
- * @brief Структура для хранения калибровочных данных IMU датчиков
- * 
- * Содержит масштабирующие коэффициенты и смещения для всех осей
- * каждого из датчиков IMU модуля GY-85
- */
-struct IMUCalibData {
-    // Калибровочные данные акселерометра ADXL345
-    int16_t accelOffset[3];  ///< Смещения нуля по трем осям
-    float accelScale[3];     ///< Масштабирующие коэффициенты для приведения к м/с²
-    
-    // Калибровочные данные гироскопа ITG3200
-    int16_t gyroOffset[3];   ///< Смещения нуля по трем осям
-    float gyroScale[3];      ///< Масштабирующие коэффициенты для приведения к рад/с
-    
-    // Калибровочные данные магнитометра QMC5883L
-    int16_t magOffset[3];    ///< Смещения нуля по трем осям
-    float magScale[3];       ///< Масштабирующие коэффициенты для нормализации
-};
 
 /**
  * @brief Класс для работы с IMU модулем GY-85
@@ -60,6 +41,8 @@ private:
     IMUData currentData;         ///< Текущие данные с датчиков
     bool calibValid;             ///< Флаг валидности калибровки
     IMUCalibData calibData;      ///< Калибровочные данные
+    uint32_t autoCalibCount;  ///< Счетчик итераций автокалибровки
+
     
     // Обработка ориентации
     Madgwick madgwick;          ///< Фильтр Madgwick
@@ -71,6 +54,12 @@ private:
     Stream* logStream;           ///< Поток для логирования
     std::string prefsName;       ///< Имя для сохранения настроек
 
+    // Методы калибровки
+    void ellipsoidFitting(float* x, float* y, float* z, int n,
+                          float* centerX, float* centerY, float* centerZ,
+                          float* scaleX, float* scaleY, float* scaleZ);
+    void adaptiveCalibrateMagnetometer(float* q);
+
 public:
     /**
      * @brief Конструктор класса IMUSensor_GY85
@@ -80,11 +69,12 @@ public:
     IMUSensor_GY85(const char* prefs_Name, Stream* logStream = nullptr);
 
     // Методы для работы с калибровкой
-    IMUCalibData& getCalibrationData();    ///< Получить текущие калибровочные данные
     void resetCalibration();               ///< Сбросить калибровку
     void setDefaultCalibration();          ///< Установить калибровку по умолчанию
     void saveCalibrationData();            ///< Сохранить калибровку
     bool readCalibrationData();            ///< Загрузить калибровку
+    void setCalibrationData(const IMUCalibData data, bool save = false) override;
+    IMUCalibData getCalibrationData() override;
 
     // Реализация интерфейса IIMU
     bool begin() override;                 

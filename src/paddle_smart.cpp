@@ -51,7 +51,7 @@ TaskHandle_t serialTaskHandle = NULL;
 LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
 SmartPaddleBLEServer paddle("SmartPaddle",IMU_FREQUENCY); //  работаем как сервер
-IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN"); // Адрес флага калибровки IMU
+IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN"); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -134,18 +134,88 @@ void loadCellTask(void *pvParameters) {
 static uint32_t last_imu_time = millis();
 static float frequency_imu = 98;
 
+
+void PrintIMUDataAngles(IMUSensor_GY87* imuSensor) {
+    IMUData imuData = imuSensor->getData();
+    OrientationData orientation = imuSensor->getOrientation();
+
+    // Вычисляем разницу кватернионов
+    float q_diff[4];
+    // q_diff = q1 * q2^(-1)
+    float q2_conj[4] = {orientation.q0, -orientation.q1, -orientation.q2, -orientation.q3};
+    
+    // Нормализуем сопряженный кватернион
+    float norm = sqrt(q2_conj[0]*q2_conj[0] + q2_conj[1]*q2_conj[1] + 
+                     q2_conj[2]*q2_conj[2] + q2_conj[3]*q2_conj[3]);
+    
+    for(int i = 0; i < 4; i++) {
+        q2_conj[i] /= norm;
+    }
+    
+    // Умножаем кватернионы
+    q_diff[0] = imuData.q0*q2_conj[0] - imuData.q1*q2_conj[1] - 
+                imuData.q2*q2_conj[2] - imuData.q3*q2_conj[3];
+    q_diff[1] = imuData.q0*q2_conj[1] + imuData.q1*q2_conj[0] + 
+                imuData.q2*q2_conj[3] - imuData.q3*q2_conj[2];
+    q_diff[2] = imuData.q0*q2_conj[2] - imuData.q1*q2_conj[3] + 
+                imuData.q2*q2_conj[0] + imuData.q3*q2_conj[1];
+    q_diff[3] = imuData.q0*q2_conj[3] + imuData.q1*q2_conj[2] - 
+                imuData.q2*q2_conj[1] + imuData.q3*q2_conj[0];
+
+    // Вычисляем углы Эйлера из разницы кватернионов
+    float yaw = atan2(2.0f * (q_diff[0]*q_diff[3] + q_diff[1]*q_diff[2]), 
+                      1.0f - 2.0f * (q_diff[2]*q_diff[2] + q_diff[3]*q_diff[3]));
+    float pitch = asin(2.0f * (q_diff[0]*q_diff[2] - q_diff[3]*q_diff[1]));
+    float roll = atan2(2.0f * (q_diff[0]*q_diff[1] + q_diff[2]*q_diff[3]), 
+                      1.0f - 2.0f * (q_diff[1]*q_diff[1] + q_diff[2]*q_diff[2]));
+
+    // Преобразуем радианы в градусы
+    yaw *= 180.0f / M_PI;
+    pitch *= 180.0f / M_PI;
+    roll *= 180.0f / M_PI;
+
+    // Выводим результаты
+    Serial.printf("Euler angles difference - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
+                 yaw, pitch, roll);
+}
+
+void PrintIMUData(IMUSensor_GY87* imuSensor) {
+    IMUData imuData = imuSensor->getData();
+    OrientationData orientation = imuSensor->getOrientation();
+    float yaw=180.0f/M_PI*atan2(2.0f*(imuData.q0*imuData.q1+imuData.q2*imuData.q3),1.0f-2.0f*(imuData.q1*imuData.q1+imuData.q2*imuData.q2));
+    float pitch=180.0f/M_PI*asin(2.0f*(imuData.q0*imuData.q2-imuData.q1*imuData.q3));
+    float roll=180.0f/M_PI*atan2(2.0f*(imuData.q0*imuData.q3+imuData.q1*imuData.q2),1.0f-2.0f*(imuData.q2*imuData.q2+imuData.q3*imuData.q3));
+    Serial.printf("DPR data - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
+                 yaw, pitch, roll);
+
+    yaw=180.0f/M_PI*atan2(2.0f*(orientation.q0*orientation.q1+orientation.q2*orientation.q3),1.0f-2.0f*(orientation.q1*orientation.q1+orientation.q2*orientation.q2));
+    pitch=180.0f/M_PI*asin(2.0f*(orientation.q0*orientation.q2-orientation.q1*orientation.q3));
+    roll=180.0f/M_PI*atan2(2.0f*(orientation.q0*orientation.q3+orientation.q1*orientation.q2),1.0f-2.0f*(orientation.q2*orientation.q2+orientation.q3*orientation.q3));
+    Serial.printf("Madgwick - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
+                 yaw, pitch, roll);
+}
+
+
 void imuTask(void *pvParameters) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/imuSensor.getFrequency());
     
     while(1) {
-        int32_t time_diff = millis()-last_imu_time;
+/*        int32_t time_diff = millis()-last_imu_time;
         last_imu_time = millis();
-/*        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
+        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
         Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);*/
 
+        
+
         imuSensor.update();
+
+        if(log_imu) {
+            //PrintIMUDataAngles(&imuSensor);
+            PrintIMUData(&imuSensor);
+        }
+
 
         if (paddle.connected()) {
             paddle.updateIMU();
@@ -285,7 +355,7 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_LOG_IMU) == 0)  {
         log_imu = true;
-        imuSensor.setLogLevel(2);
+        imuSensor.setLogLevel(1);
     }
     else if(strcmp(cmd, CMD_LOG_LOAD) == 0)  {
         log_load = true;
@@ -366,7 +436,7 @@ void setup() {
         digitalWrite(POWER_PIN, HIGH);  
         delay(10);
     }
-
+    Wire.end();
     Wire.begin(I2C_SDA, I2C_SCL);
     
     
@@ -379,6 +449,7 @@ void setup() {
     // Инициализация IMU
 
     imuSensor.setInterruptPin(INTERRUPT_PIN);
+    imuSensor.setAutoCalibrateMag(false);
     imuSensor.begin();
 
     // Инициализация Весла
@@ -449,7 +520,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         serialCommandTask,
         "SerialCmd",
-        4096,
+        4096*2,
         NULL,
         1,
         &serialTaskHandle,

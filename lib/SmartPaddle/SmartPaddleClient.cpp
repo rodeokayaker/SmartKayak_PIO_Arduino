@@ -76,6 +76,8 @@ OverwritingQueue<BladeData> SmartPaddleBLEClient::bladeQueue(SENSOR_QUEUE_SIZE);
 OverwritingQueue<PaddleStatus> SmartPaddleBLEClient::statusQueue(1);
 PaddleSpecs clientSpecs;
 
+uint32_t TimeDifference=UINT32_MAX;
+
 
 //BAD Situation
 PaddleSpecs SmartPaddleBLEClient::getSpecs(){
@@ -117,7 +119,6 @@ static float frequency_notify = 50;
 
 // Колбэки для получения данных
 void SmartPaddleBLEClient::forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
-//    Serial.printf("Force callback length = %d\n", length);
     loadData data;
     if(length == sizeof(loadData)) {
         memcpy(&data, pData, sizeof(loadData));
@@ -140,6 +141,9 @@ void SmartPaddleBLEClient::imuCallback(BLERemoteCharacteristic* pChar, uint8_t* 
     if(length == sizeof(IMUData)) {
 
         memcpy(&data, pData, sizeof(IMUData));
+        if (millis()-data.timestamp < TimeDifference) {
+            TimeDifference=millis()-data.timestamp;
+        }
         
 //        Serial.printf("IMU imestamp: %u\n",data.timestamp);
 
@@ -180,6 +184,10 @@ void SmartPaddleBLEClient::orientationCallback(BLERemoteCharacteristic* pChar, u
     OrientationData data;
     if(length == sizeof(OrientationData)) {
         memcpy(&data, pData, sizeof(OrientationData));
+        if (millis()-data.timestamp < TimeDifference) {
+            TimeDifference=millis()-data.timestamp;
+        }
+
         if (log_imu) {
             Serial.printf("Orientation: q0=%.3f q1=%.3f q2=%.3f q3=%.3f ts=%u\n",
                 data.q0, data.q1, data.q2, data.q3, data.timestamp);
@@ -205,27 +213,21 @@ void SmartPaddleBLEClient::specsCallback(BLERemoteCharacteristic* pChar, uint8_t
 }
 
 // Методы для получения данных из очередей
-bool SmartPaddleBLEClient::getLoadData(loadData& data, TickType_t timeout) {
+bool SmartPaddleBLEClient::receiveLoadData(loadData& data, TickType_t timeout) {
     return loadsensorQueue.receive(data, timeout);
 }
 
-bool SmartPaddleBLEClient::getIMUData(IMUData& data, TickType_t timeout) {
+bool SmartPaddleBLEClient::receiveIMUData(IMUData& data, TickType_t timeout) {
 
-    //READ LAST DATA
-    if (imuQueue.available() > 0) {
-//        while (imuQueue.available() > 0) {
-            imuQueue.receive(data, timeout);
-//        }
-        return true;
-    }
+    imuQueue.receive(data, timeout);
     return false;
 }
 
-bool SmartPaddleBLEClient::getStatusData(PaddleStatus& data, TickType_t timeout) {
+bool SmartPaddleBLEClient::receiveStatusData(PaddleStatus& data, TickType_t timeout) {
     return statusQueue.receive(data, timeout);
 }   
 
-bool SmartPaddleBLEClient::getOrientationData(OrientationData& data, TickType_t timeout) {
+bool SmartPaddleBLEClient::receiveOrientationData(OrientationData& data, TickType_t timeout) {
     //READ LAST DATA
     if (orientationQueue.available() > 0) {
 //        while (orientationQueue.available() > 0) {
@@ -236,7 +238,7 @@ bool SmartPaddleBLEClient::getOrientationData(OrientationData& data, TickType_t 
     return false;
 }      
 
-bool SmartPaddleBLEClient::getBladeData(BladeData& data, TickType_t timeout) {
+bool SmartPaddleBLEClient::receiveBladeData(BladeData& data, TickType_t timeout) {
     return bladeQueue.receive(data, timeout);
 }   
 
@@ -536,10 +538,10 @@ void SmartPaddleBLEClient::calibrateLoads(BladeSideType blade_side) {
         params["blade_side"] = blade_side;
         switch(blade_side){
             case RIGHT_BLADE:
-            serial->sendCommand("calibrate_loads_right", &params);    
+            serial->sendCommand("calibrate_loads", &params);    
             break;
             case LEFT_BLADE:
-            serial->sendCommand("calibrate_loads_left", &params);            
+            serial->sendCommand("calibrate_loads", &params);            
             break;
             case ALL_BLADES:
             serial->sendCommand("calibrate_loads", &params);
@@ -577,4 +579,35 @@ bool SmartPaddleBLEClient::setupCharacteristics() {
 
 void SmartPaddleBLEClient::shutdown() {
     if (serial) serial->sendCommand("shutdown");
+}
+
+void SmartPaddleBLEClient::updateIMU() {
+    while (imuQueue.available() > 0) {
+        imuQueue.receive(current_imu_data, 0);
+    }
+    while (orientationQueue.available() > 0) {
+        orientationQueue.receive(current_orientation_data, 0);
+    }
+}
+
+void SmartPaddleBLEClient::updateLoads() {
+    while (loadsensorQueue.available() > 0) {
+        loadsensorQueue.receive(current_loads_data, 0);
+    }
+}
+
+IMUData SmartPaddleBLEClient::getIMUData(){
+    return current_imu_data;
+}
+
+loadData SmartPaddleBLEClient::getLoadData(){
+    return current_loads_data;
+}
+
+OrientationData SmartPaddleBLEClient::getOrientationData(){
+    return current_orientation_data;
+}
+
+uint32_t SmartPaddleBLEClient::paddleMillis(){
+    return ::millis()-TimeDifference;
 }
