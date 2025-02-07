@@ -9,13 +9,32 @@ AmperikaCRLog::AmperikaCRLog(uint8_t cs_pin, uint8_t sck_pin, uint8_t miso_pin, 
 {
 }
 
-void AmperikaCRLog::begin() {
-}
-
-void AmperikaCRLog::begin(const char* filename) {
+bool AmperikaCRLog::begin(const char* filename) {
     if (filename) {
         setFilename(filename);
     }
+   // Настройка пинов
+    pinMode(cs_pin, OUTPUT);
+    digitalWrite(cs_pin, HIGH); // Отключаем карту по умолчанию
+    Serial.println("SD Card initialization started");
+
+    SPISettings spiSettings(10000000, MSBFIRST, SPI_MODE0); // 10MHz, стандартный режим
+
+    Serial.println("SPI initialization started");
+    // Инициализация SPI для SD карты
+    SPI.begin(sck_pin, miso_pin, mosi_pin);
+    Serial.println("SPI initialization finished");
+    Serial.println("SPI initialization finished");
+
+//    SPI.beginTransaction(spiSettings);
+    Serial.println("SPI transaction started");
+    // Инициализация SD карты
+    if (!SD.begin(cs_pin)) {
+        Serial.println("SD Card initialization failed!");
+        return false;
+    }
+    Serial.println("SD Card initialized successfully");
+    return true;
 }
 
 void AmperikaCRLog::setFilename(const char* filename) {
@@ -105,6 +124,28 @@ void AmperikaCRLog::flush() {
 
 void AmperikaCRLog::logQuaternion(const float* q){
     this->printf("%f; %f; %f; %f;", q[0], q[1], q[2], q[3]);
+}
+
+void AmperikaCRLog::logLoads(const loadData& loads){
+    this->printf("%d; %d; %d;", loads.timestamp, loads.forceR, loads.forceL);
+}
+
+void AmperikaCRLog::logIMU(const IMUData& imu){
+    this->printf("%lu; %f; %f; %f; %f; %f; %f; %d; %d; %d; %f; %f; %f; %f; %f; %f; %f;",
+        imu.timestamp,
+        imu.ax, imu.ay, imu.az,
+        imu.gx, imu.gy, imu.gz,
+        imu.mag_x, imu.mag_y, imu.mag_z,
+        imu.mx, imu.my, imu.mz,
+        imu.q0, imu.q1, imu.q2, imu.q3
+    );
+}
+
+void AmperikaCRLog::logOrientation(const OrientationData& orientation){
+    this->printf("%lu; %f; %f; %f; %f;",
+        orientation.timestamp,
+        orientation.q0, orientation.q1, orientation.q2, orientation.q3
+    );
 }
 
 

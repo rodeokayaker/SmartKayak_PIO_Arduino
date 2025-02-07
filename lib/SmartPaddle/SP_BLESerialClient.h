@@ -10,16 +10,19 @@
 
 
 class SP_BLESerialClient : public SP_BLESerial, public BLECharacteristicCallbacks {
+
 private:
     BLERemoteService* serialService;
     BLERemoteCharacteristic* txChar;
     BLERemoteCharacteristic* rxChar;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> notifyCallback;
 
 
-    static void notifySerialCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
-       SmartPaddle* paddle = PaddleMap[(void*)(pChar->getRemoteService()->getClient())];
-        if (!paddle) return;
-        SP_BLESerialClient* client = (SP_BLESerialClient*)paddle->getSerial();
+    void notifySerialCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
+//       SmartPaddle* paddle = PaddleMap[(void*)(pChar->getRemoteService()->getClient())];
+//        if (paddle == nullptr) return;
+ //       SP_BLESerialClient* client = (SP_BLESerialClient*)paddle->getSerial();
+        SP_BLESerialClient* client = this;
         if(!client || !client->started) return;
 
         // Добавляем полученные данные в буфер
@@ -44,7 +47,9 @@ private:
 
         // Устанавливаем callback для уведомлений
         if(txChar->canNotify()) {
-            txChar->registerForNotify(SP_BLESerialClient::notifySerialCallback);
+            if (!notifyCallback)
+                notifyCallback = std::bind(&SP_BLESerialClient::notifySerialCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+            txChar->registerForNotify(notifyCallback);
             const uint8_t indicationOn[] = {0x1, 0x0};
             const uint8_t indicationOff[] = {0x0, 0x0};            
             txChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)indicationOn, 2, true);
@@ -53,6 +58,9 @@ private:
 
         return true;
     }
+
+    void disconnect() {
+     }
 
 public:
     SP_BLESerialClient(SmartPaddle* p) : 
@@ -81,6 +89,7 @@ public:
     void end() override {
         if(!started) return;
         flush();
+        disconnect();
         started = false;
     }
 

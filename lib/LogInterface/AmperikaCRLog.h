@@ -21,17 +21,16 @@ class AmperikaCRLog : public ILogInterface{
 
     AmperikaCRLog(uint8_t cs_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t mosi_pin);
 
-    void begin();
-    void begin(const char* filename);
+    bool begin(const char* filename=nullptr);
     bool openFile();
     bool closeFile();
     bool clearFile();
     void setFilename(const char* filename);
 
     void logQuaternion(const float* q) override;
-    void logLoads(const float* loads) override;
-    void logIMU(const float* imu) override;
-
+    void logLoads(const loadData& loads) override;
+    void logIMU(const IMUData& imu) override;
+    void logOrientation(const OrientationData& orientation) override;
     //Stream metods implementation
     virtual int available() override;
     virtual int read() override;

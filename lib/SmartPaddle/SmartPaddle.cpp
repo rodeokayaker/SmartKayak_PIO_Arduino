@@ -24,21 +24,18 @@ namespace SmartPaddleUUID {
     const char* BLADE_UUID = "C7D2019D-22C9-40C7-ABFB-28F570217153";
 }
 
-// Определения для FreeRTOS
-#define SENSOR_STACK_SIZE 4096
-#define BLE_STACK_SIZE 4096
-#define IMU_STACK_SIZE 4096
-#define MADGWICK_STACK_SIZE 4096
-
-#define BLE_BUFFER_SIZE ESP_GATT_MAX_ATTR_LEN // must be greater than MTU, less than ESP_GATT_MAX_ATTR_LEN
-#define RX_BUFFER_SIZE 4096
+SmartPaddle::~SmartPaddle(){
+    if(serial) {delete serial; serial=nullptr;}
+    if(messageHandler) {delete messageHandler; messageHandler=nullptr;}
+}
 
 
-int BLEMTU = 256; //max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData), sizeof(PaddleStatus), sizeof(PaddleSpecs), sizeof(BladeData)})+4;
-std::map<void*, SmartPaddle*> PaddleMap = {} ;
+
+int SmartPaddle::BLEMTU = max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
 
 bool log_imu = false;
 bool log_load = false;
+
 
 
 

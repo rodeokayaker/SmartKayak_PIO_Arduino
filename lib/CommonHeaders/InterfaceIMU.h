@@ -34,16 +34,23 @@ struct OrientationData {
 
 class IIMU {
 public:
-    virtual bool begin() = 0;
+    virtual IMUData readData() = 0;
+    virtual OrientationData getOrientation() = 0; // from readed Data
     virtual IMUData getData() = 0;
-    virtual OrientationData getOrientation() = 0;
-    virtual void getData(IMUData& data) = 0;
+    virtual OrientationData updateOrientation() = 0;
+    virtual uint16_t getFrequency() = 0;
+    virtual bool DMPEnabled() = 0;
+    virtual int8_t interruptPIN() = 0;
+    virtual uint16_t magnetometerFrequency() = 0;
+    virtual void magnetometerUpdate() = 0;
     virtual void calibrate() = 0;
+    virtual void calibrateCompass() = 0;
     virtual bool isCalibrationValid() = 0;
     virtual void setLogStream(Stream* stream = &Serial) = 0;
     virtual IMUCalibData getCalibrationData() = 0;
     virtual void setCalibrationData(const IMUCalibData data, bool save = false) = 0;
-    virtual void update() = 0;
+    virtual bool DMPValid() =0;
+    virtual int8_t getIntStatus() = 0;
     virtual ~IIMU() = default;
 };
 

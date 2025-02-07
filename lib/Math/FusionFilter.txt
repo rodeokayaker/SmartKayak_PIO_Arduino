@@ -1,0 +1,52 @@
+// Создание фильтра с настройкой магнитного склонения
+SP_Filters::MagCorrectionFilter::Config config;
+config.magnetic_declination = 0.127f; // ~7.3 градуса для Москвы
+SP_Filters::MagCorrectionFilter mag_filter(config);
+
+// В основном цикле
+void IMUSensor_GY87::update() {
+    IMUData raw_data = getData();
+    
+    SP_Math::Quaternion dmp_q(raw_data.qw, raw_data.qx, raw_data.qy, raw_data.qz);
+    SP_Math::Vector mag(raw_data.mag_x, raw_data.mag_y, raw_data.mag_z);
+    SP_Math::Vector gyro(raw_data.gyro_x, raw_data.gyro_y, raw_data.gyro_z);
+    
+    SP_Math::Quaternion final_orientation = mag_filter.update(dmp_q, mag, gyro);
+    
+    // Можно получить информацию о качестве данных
+    float disturbance = mag_filter.getMagneticDisturbance();
+    float trust = mag_filter.getMagTrustFactor();
+    
+    // Обновляем данные
+    currentData.qw = final_orientation.w();
+    currentData.qx = final_orientation.x();
+    currentData.qy = final_orientation.y();
+    currentData.qz = final_orientation.z();
+}
+
+
+Или так 
+
+void IMUSensor_GY87::update() {
+    static SP_Filters::DMP_MagFusion::Config config;
+    config.magnetic_declination = 0.127f;  // для Москвы
+    static SP_Filters::DMP_MagFusion mag_fusion(config);
+    
+    IMUData raw_data = getData();
+    
+    SP_Math::Quaternion dmp_quat(raw_data.qw, raw_data.qx, raw_data.qy, raw_data.qz);
+    SP_Math::Vector mag(raw_data.mag_x, raw_data.mag_y, raw_data.mag_z);
+    SP_Math::Vector gyro(raw_data.gyro_x, raw_data.gyro_y, raw_data.gyro_z);
+    
+    SP_Math::Quaternion final_quat = mag_fusion.update(dmp_quat, mag, gyro);
+    
+    // Можно проверить надежность магнитометра
+    float mag_trust = mag_fusion.getMagTrust();
+    float mag_variance = mag_fusion.getMagVariance();
+    
+    // Обновляем данные
+    currentData.qw = final_quat.w();
+    currentData.qx = final_quat.x();
+    currentData.qy = final_quat.y();
+    currentData.qz = final_quat.z();
+}

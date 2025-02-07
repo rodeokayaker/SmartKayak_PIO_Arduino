@@ -1,0 +1,15 @@
+void IMUSensor_GY87::calibrateMagnetometer() {
+    static SP_Filters::AdaptiveMagCalibrator calibrator;
+    
+    // В основном цикле
+    SP_Math::Vector mag_raw(raw_data.mag_x, raw_data.mag_y, raw_data.mag_z);
+    SP_Math::Vector gyro(raw_data.gyro_x, raw_data.gyro_y, raw_data.gyro_z);
+    SP_Math::Vector acc(raw_data.acc_x, raw_data.acc_y, raw_data.acc_z);
+    
+    calibrator.update(mag_raw, gyro, acc);
+    
+    if (calibrator.isCalibrated()) {
+        auto params = calibrator.getCalibration();
+        // Применяем калибровку...
+    }
+}

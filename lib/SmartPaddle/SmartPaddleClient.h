@@ -6,22 +6,30 @@
 #include <BLESecurity.h>
 #include <BLE2902.h>
 
+namespace SPClient_Default_Frequencies {
+    const uint16_t BLE_SEND_FREQUENCY = 10;
+    const uint16_t BLE_RECEIVE_FREQUENCY = 10;
+}
 
 
 // Класс для работы со SmartPaddle на стороне клиента (каяка)
 class SmartPaddleBLEClient : public SmartPaddle {
     friend class SPBLEClientCallbacks;
     friend class SPBLEClientScanCallbacks;
+    friend class SPClientRTOS;
+    friend class SerialClient_MessageHandler;
 
 private:
     BLEClient* pClient;
     BLERemoteService* pRemoteService;
     BLERemoteCharacteristic* forceChar;
     BLERemoteCharacteristic* imuChar;
-    BLERemoteCharacteristic* statusChar;
-    BLERemoteCharacteristic* specsChar;
     BLERemoteCharacteristic* orientationChar;
     BLERemoteCharacteristic* bladeChar;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> imuNotifyCallback;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> orientationNotifyCallback;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> forceNotifyCallback;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> bladeNotifyCallback;
     
     BLEAddress* trustedDevice;
     BLESecurity* pSecurity;
@@ -29,38 +37,37 @@ private:
     bool is_pairing;
     bool do_connect;
     bool do_scan;
+    bool do_disconnect;
 
     std::string prefsName;
+
+    TaskHandle_t bleReceiveTaskHandle;
+    TaskHandle_t bleSendTaskHandle;
+    TaskHandle_t eventTaskHandle;
+    uint16_t bleSendFrequency;
+    uint16_t bleReceiveFrequency;
     
     // Очереди для хранения полученных данных
 
     //TODO: для подключения нескольких весел, с этим нужно будет поработать
     //Надо будет сделать очередь для каждого весла
-    static OverwritingQueue<loadData> loadsensorQueue;
-    static OverwritingQueue<OrientationData> orientationQueue;
-    static OverwritingQueue<IMUData> imuQueue;
-    static OverwritingQueue<BladeData> bladeQueue;
-    static OverwritingQueue<PaddleStatus> statusQueue;
+    OverwritingQueue<loadData> loadsensorQueue;
+    OverwritingQueue<OrientationData> orientationQueue;
+    OverwritingQueue<IMUData> imuQueue;
+//    OverwritingQueue<BladeData> bladeQueue;
 
-    uint32_t last_orientation_ts;
-    uint32_t last_blade_ts;
-    uint32_t last_imu_ts;
-    uint32_t last_loads_ts;
+
+    uint32_t timeDifference;
 
     IMUData current_imu_data;
     loadData current_loads_data;
     OrientationData current_orientation_data;
-    BladeData current_blade_data;
+//    BladeData current_blade_data;
     
-    // Колбэки для получения нотификаций
-    //TODO: для подключения нескольких весел, с этим нужно будет поработать
-    //Надо будет сделать отдельные колбэки для каждого весла
-    static void forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static void imuCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static void orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static void bladeCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static void statusCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static void specsCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    void forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    void imuCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+    void orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
+//    void bladeCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     
     void loadTrustedDevice();
     void saveTrustedDevice(BLEAddress* address);
@@ -73,13 +80,10 @@ public:
     
     // Реализация интерфейса SmartPaddle
     void begin(const char* deviceName) override;
-    void setPaddleID(uint32_t id) override { specs.PaddleID = id; }
     void setFilterFrequency(uint32_t frequency) override {} // Не используется на клиенте
     
     // Эти методы не используются на клиенте
-    void updateIMU() override;
-    void updateLoads() override;
-    void updateBLE() override;
+    void updateBLE();
     
     bool connect() override;
     void disconnect() override;
@@ -89,9 +93,7 @@ public:
     bool receiveLoadData(loadData& data, TickType_t timeout = 0);
     bool receiveIMUData(IMUData& data, TickType_t timeout = 0);
     bool receiveOrientationData(OrientationData& data, TickType_t timeout = 0);
-    bool receiveBladeData(BladeData& data, TickType_t timeout = 0);
-    bool receiveStatusData(PaddleStatus& data, TickType_t timeout = 0);
-    PaddleSpecs getSpecs();
+//    bool receiveBladeData(BladeData& data, TickType_t timeout = 0);
     bool isPairing(){return is_pairing;}
     
     // Методы для работы со сканированием
@@ -106,8 +108,11 @@ public:
     IMUData getIMUData() override;
     loadData getLoadData() override;
     OrientationData getOrientationData() override;
-
+    void calibrateBladeAngle(BladeSideType blade_side) override;
     uint32_t paddleMillis() override;
+    uint32_t toLocalMillis(uint32_t timestamp) {return timestamp+timeDifference;}
 };
+
+//extern std::map<void*, SmartPaddle*> PaddleMap;
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

@@ -23,9 +23,10 @@ LoadCellHX711::LoadCellHX711(const char* prefs_Name, uint8_t dout_pin, uint8_t s
     calibData.offset = 0.0f;
 }
 
-bool LoadCellHX711::begin() {
+bool LoadCellHX711::begin(uint16_t freq) {
 
     scale.begin(doutPin, sclkPin);
+    frequency = freq;
 
     if(!scale.wait_ready_timeout(1000)) {
         logStream->println("HX711 not found!");
@@ -43,6 +44,7 @@ void LoadCellHX711::saveCalibrationData() {
     prefs.begin(prefsName.c_str(), false);
     prefs.putBytes("calibData", &calibData, sizeof(LoadCellCalibData));
     prefs.end();
+    calibValid = true;
 }
 
 bool LoadCellHX711::readCalibrationData() {
@@ -51,6 +53,7 @@ bool LoadCellHX711::readCalibrationData() {
     if(prefs.isKey("calibData")) {
         prefs.getBytes("calibData", &calibData, sizeof(LoadCellCalibData));
         prefs.end();
+        calibValid = true;
         return true;
     }
     prefs.end();
@@ -58,10 +61,21 @@ bool LoadCellHX711::readCalibrationData() {
 }
 
 float LoadCellHX711::getForce() {
-    float force = (scale.read()-calibData.offset)*calibData.calibrationFactor;
-    
-
+    float force = calibData.calibrationFactor*(float)(lastReadData-calibData.offset);
     return force;
+}
+
+uint16_t LoadCellHX711::getFrequency() {
+    return frequency;
+}
+
+int32_t LoadCellHX711::getRawForce() {
+    return lastReadData;
+}
+
+void LoadCellHX711::read() {
+    lastReadData = scale.read();
+    lastReadTime = millis();
 }
 
 void LoadCellHX711::calibrate() {
@@ -71,34 +85,44 @@ void LoadCellHX711::calibrate() {
 
     delay(3000);
     int32_t sum = 0;
-    for(int i = 0; i < 20; i++) {
+    for(int i = 0; i < 200; i++) {
         sum += scale.read();
 
         delay(10);
     }
-    calibData.offset = sum / 20;
+    calibData.offset = sum / 200;
 
     logStream->println("Tare done");
     
     logStream->println("Place 1kg weight and wait...");
     delay(3000);
     sum = 0;
-    for(int i = 0; i < 30; i++) {
+    for(int i = 0; i < 200; i++) {
         sum += scale.read()-calibData.offset;
         delay(10);
     }
 
-    calibData.calibrationFactor = 10000.0f / (sum/30);
+    calibData.calibrationFactor = HX711_DEFAULT_CALIBRATION_FACTOR / ((float)sum/200);
 
 
     saveCalibrationData();
-    calibValid = true;
     
 //    if(log_level > 0) {
         logStream->printf("Calibration factor: %.3f\n", calibData.calibrationFactor);
         logStream->printf("Offset: %d\n", calibData.offset);
         logStream->printf("Calibration Done\n");
 //    }
+}
+
+void LoadCellHX711::calibrateScale(float weight) {
+    int32_t sum = 0;
+    for(int i = 0; i < 200; i++) {
+        sum += scale.read()-calibData.offset;
+        delay(10);
+    }
+
+    calibData.calibrationFactor = weight / ((float)sum/200);
+    saveCalibrationData();
 }
 
 void LoadCellHX711::resetCalibration() {
@@ -112,4 +136,41 @@ bool LoadCellHX711::isCalibrationValid() {
 
 void LoadCellHX711::setLogStream(Stream* stream) {
     logStream = stream;
+}
+
+void LoadCellHX711::tare() {
+    logStream->printf("Taring load cell \'%s\'\n", prefsName.c_str());
+    logStream->println("Remove all weight");
+
+    delay(3000);
+    int32_t sum = 0;
+    for(int i = 0; i < 50; i++) {
+        sum += scale.read();
+
+        delay(10);
+    }
+    logStream->println("Turn over");
+    delay(3000);
+    for(int i = 0; i < 50; i++) {
+        sum += scale.read();
+
+        delay(10);
+    }
+    logStream->println("Turn sideways");
+    delay(3000);
+    for(int i = 0; i < 50; i++) {
+        sum += scale.read();
+        delay(10);
+    }
+    logStream->println("Turn over");
+    delay(3000);
+    for(int i = 0; i < 50; i++) {
+        sum += scale.read();
+        delay(10);
+    }
+
+    calibData.offset = sum / 200;
+
+    logStream->println("Tare done");
+    saveCalibrationData();
 }

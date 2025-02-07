@@ -5,10 +5,15 @@
 #include "freertos/task.h"
 
 // Определение пинов для SD карты Amperka
-#define SD_CS_PIN 5    // CS пин
+/*#define SD_CS_PIN 5    // CS пин
 #define SD_SCK_PIN 18  // SCK пин
 #define SD_MISO_PIN 19 // MISO пин
 #define SD_MOSI_PIN 23 // MOSI пин
+*/
+#define SD_MISO_PIN     12    // GPIO19
+#define SD_MOSI_PIN     33    // GPIO23  
+#define SD_SCK_PIN      13    // GPIO18
+#define SD_CS_PIN       2     // GPIO5 (CS
 
 // Структура для хранения параметров задачи
 typedef struct {

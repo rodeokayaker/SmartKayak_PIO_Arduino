@@ -7,10 +7,18 @@
 #include <BLE2902.h>
 #include <MadgwickAHRS.h>
 #include <esp_gatts_api.h>
-
+#include <ArduinoJson.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include <SP_Quaternion.h>
+
+// FreeRTOS определения
+#define SENSOR_STACK_SIZE 4096
+#define IMU_STACK_SIZE 4096
+#define ORIENTATION_STACK_SIZE 4096
+#define BLE_STACK_SIZE 4096
+#define BLE_RECEIVE_STACK_SIZE 8192
 
 extern bool log_imu;
 extern bool log_load;
@@ -28,53 +36,116 @@ class SerialServer_MessageHandler: public BLESerialMessageHandler{
     }
     void onCommand(const char* command, JsonObject& params){
         Serial.printf("Paddle command: %s\n", command);
-        if (strcmp(command, "calibrate_imu") == 0) {
+        if (strcmp(command, SP_BLESerial_Commands::CALIBRATE_IMU) == 0) {
             paddle->setLogStream(paddle->getSerial());
             paddle->calibrateIMU();
             paddle->setLogStream(&Serial);
             return;
         }
-        if (strcmp(command, "calibrate_loads") == 0) {
-            if (params["blade_side"].is<int>()) {
-                BladeSideType side = (BladeSideType)params["blade_side"];
+        if (strcmp(command, SP_BLESerial_Commands::CALIBRATE_LOADS) == 0) {
+            Serial.printf("Calibrate loads command\n");
+            paddle->setLogStream(paddle->getSerial());            
+            if (params[SP_BLESerial_Commands::BLADE_SIDE_PARAM].is<int>()) {
+                Serial.printf("Calibrate loads command with side\n");
+                BladeSideType side = (BladeSideType)params[SP_BLESerial_Commands::BLADE_SIDE_PARAM];
                 if (side == LEFT_BLADE) {
+                    Serial.printf("Calibrate left blade\n");
                     paddle->calibrateLoads(LEFT_BLADE);
                 } else if (side == RIGHT_BLADE) {
+                    Serial.printf("Calibrate right blade\n");
                     paddle->calibrateLoads(RIGHT_BLADE);
                 } else if (side == ALL_BLADES) {
+                    Serial.printf("Calibrate all blades\n");
                     paddle->calibrateLoads(ALL_BLADES);
                 }
             } else {
+                Serial.printf("Calibrate all blades\n");
                 paddle->calibrateLoads(ALL_BLADES);
             }
             paddle->setLogStream(&Serial);
             return;
         }
-        if (strcmp(command, "calibrate_loads_left") == 0) {
+
+        if (strcmp(command, SP_BLESerial_Commands::TARE_LOADS) == 0) {
+            Serial.printf("Tare loads command\n");
+            paddle->sendData=false;
+            paddle->setLogStream(paddle->getSerial());            
+            if (params[SP_BLESerial_Commands::BLADE_SIDE_PARAM].is<int>()) {
+                Serial.printf("Tare loads command with side\n");
+                BladeSideType side = (BladeSideType)params[SP_BLESerial_Commands::BLADE_SIDE_PARAM];
+                if (side == LEFT_BLADE) {
+                    Serial.printf("Tare left blade\n");
+                    if (paddle->loads[1])
+                        paddle->loads[1]->tare();
+                } else if (side == RIGHT_BLADE) {
+                    Serial.printf("Tare right blade\n");
+                    if (paddle->loads[0])
+                        paddle->loads[0]->tare();
+                } else if (side == ALL_BLADES) {
+                    Serial.printf("Tare all blades\n");
+                    if (paddle->loads[0])
+                        paddle->loads[0]->tare();
+                    if (paddle->loads[1])
+                        paddle->loads[1]->tare();
+                }
+            } else {
+                Serial.printf("Tare all blades\n");
+                if (paddle->loads[0])
+                    paddle->loads[0]->tare();
+                if (paddle->loads[1])
+                    paddle->loads[1]->tare();
+            }
+            paddle->setLogStream(&Serial);
+            paddle->sendData=true;
+            return;
+        }
+
+        if (strcmp(command, SP_BLESerial_Commands::CALIBRATE_BLADE_ANGLE) == 0) {
+            Serial.printf("Calibrate blade angle command\n");
             paddle->setLogStream(paddle->getSerial());
-            paddle->calibrateLoads(LEFT_BLADE);
+            if (params[SP_BLESerial_Commands::BLADE_SIDE_PARAM].is<int>()) {
+                Serial.printf("Calibrate blade angle command with side\n");
+                BladeSideType side = (BladeSideType)params[SP_BLESerial_Commands::BLADE_SIDE_PARAM];
+                if (side == LEFT_BLADE) {
+                    Serial.printf("Calibrate left blade angle\n");
+                    paddle->calibrateBladeAngle(LEFT_BLADE);
+                } else if (side == RIGHT_BLADE) {
+                    Serial.printf("Calibrate right blade angle\n");
+                    paddle->calibrateBladeAngle(RIGHT_BLADE);
+                } else if (side == ALL_BLADES) {
+                    Serial.printf("Calibrate all blades angle\n");
+                    paddle->calibrateBladeAngle(ALL_BLADES);
+                }
+            } else {
+                Serial.printf("Calibrate all blades angle\n");
+                paddle->calibrateBladeAngle(ALL_BLADES);
+            }            
             paddle->setLogStream(&Serial);
             return;
         }
-        if (strcmp(command, "calibrate_loads_right") == 0) {
+
+        if (strcmp(command, SP_BLESerial_Commands::CALIBRATE_COMPASS) == 0) {
             paddle->setLogStream(paddle->getSerial());
-            paddle->calibrateLoads(RIGHT_BLADE);
+            paddle->sendData=false;
+            paddle->imu->calibrateCompass();
+            paddle->sendData=true;
             paddle->setLogStream(&Serial);
             return;
-        }     
+        }
 
-        if (strcmp(command, "send_specs") == 0) {
+        if (strcmp(command, SP_BLESerial_Commands::SEND_SPECS) == 0) {
             paddle->sendSpecs();
             return;
         }
-        if (strcmp(command, "start_pair") == 0) {
+        if (strcmp(command, SP_BLESerial_Commands::START_PAIR) == 0) {
             paddle->startPairing();
             return;
         }
-        if (strcmp(command, "shutdown") == 0) {
+        if (strcmp(command, SP_BLESerial_Commands::SHUTDOWN) == 0) {
             paddle->shutdown();
             return;
         }
+
     }
     void onResponse(const char* command, bool success, const char* message){
         Serial.printf("Kayak response: %s\n", command);
@@ -87,31 +158,229 @@ class SerialServer_MessageHandler: public BLESerialMessageHandler{
     }
 };
 
-SmartPaddle::~SmartPaddle(){
-    if(serial) {delete serial; serial=nullptr;}
-    if(messageHandler) {delete messageHandler; messageHandler=nullptr;}
-}
 
 void SmartPaddleBLEServer::updateIMU() {
     if(imu) {
-//        imu->update();
-        IMUData imuData = imu->getData();
-        imuQueue.send(imuData);
+        // Получаем данные IMU только если он доступен
+        IMUData imuData = imu->readData();
+        if (imu->DMPValid()){
+            imuQueue.send(imuData);
         
-        OrientationData orientation = imu->getOrientation();
-        orientationQueue.send(orientation);
-
-/*        if (logInterface)
-            logInterface->logQuaternion(&orientation.q0);
-*/
+            // Получаем данные ориентации только если IMU доступен
+            OrientationData orientation = imu->getOrientation();
+            orientationQueue.send(orientation);
+        }
     }
+    // Если IMU недоступен, не отправляем никаких данных в очереди
 }
 
+void interruptHandler(){
+    Serial.printf("IMU interrupt\n");
+}
+
+class SPServerRTOS{
+    private:
+    static SmartPaddleBLEServer* mainPaddle;
+
+    static void imuTask(void *pvParameters) {        
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        if (!paddle->imu){
+            vTaskDelete(NULL);
+            return;
+        }
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        uint32_t frequency = paddle->imuFrequency;
+        TickType_t xFrequency = (frequency>0)?pdMS_TO_TICKS(1000/frequency):0;    
+        while(1) {
+            if (xFrequency==0){
+               // Ждем уведомления от прерывания
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            }
+
+            if (paddle->connected()) {
+                if (paddle->sendData) {
+                    paddle->updateIMU();
+                    // Разбудить BLESend задачу
+                    xTaskNotifyGive(paddle->bleSendTaskHandle);
+                }
+            }
+
+            if (xFrequency>0)
+                xTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+        }
+    }
+
+// Задача чтения тензодатчиков
+    static void loadCellTask(void *pvParameters) {
+
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        if (!paddle->loads[0]){
+            vTaskDelete(NULL);
+            return;
+        }
+        uint32_t frequency = paddle->loadCellFrequency;
+        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);        
+        while(1) {
+            if (paddle->connected()) {
+                if (paddle->sendData){ 
+                    paddle->updateLoads();               
+                    // Разбудить BLESend задачу
+                    xTaskNotifyGive(paddle->bleSendTaskHandle);
+                }
+            }
+
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+    }  
+
+    static void orientationTask(void *pvParameters) {
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        uint32_t frequency = paddle->imu->getFrequency();
+        if (frequency == 0){
+            vTaskDelete(NULL);
+            return;
+        }
+        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
+        while(1) {
+            paddle->imu->updateOrientation();
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+    }
+
+    static void magnetometerTask(void *pvParameters) {
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        if (!paddle->imu){
+            vTaskDelete(NULL);
+            return;
+        }
+        uint32_t frequency = paddle->imu->magnetometerFrequency();
+        if (frequency == 0){
+            vTaskDelete(NULL);
+            return;
+        }
+        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
+        while(1) {
+            paddle->imu->magnetometerUpdate();
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+    }
+
+    // Задача обработки BLE
+
+    static void bleSendTask(void *pvParameters) {
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        uint32_t frequency = paddle->bleSendFrequency;
+        if (frequency == 0){
+            vTaskDelete(NULL);
+            return;
+        }
+        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency); 
+        while(1) {
+            //Waiting for wakeup
+            ulTaskNotifyTake(pdTRUE, xFrequency);
+            paddle->updateBLE();
+            //vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+    }
+
+    static void bleReceiveTask(void *pvParameters) {
+        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        uint32_t frequency = paddle->bleReceiveFrequency;
+        if (frequency == 0){
+            vTaskDelete(NULL);
+            return;
+        }
+        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency); 
+        
+        while(1) {
+            if(paddle->getSerial()) 
+                paddle->getSerial()->updateJSON();
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+    }
+
+
+    static void IRAM_ATTR dmpDataReady() {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(mainPaddle->imuTaskHandle, &xHigherPriorityTaskWoken);
+        if (xHigherPriorityTaskWoken) {
+            portYIELD_FROM_ISR();
+        }
+    }
+
+    public:
+    //All tasks setup and start
+    static void startTasks(SmartPaddleBLEServer* paddle) {
+        mainPaddle = paddle;
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::loadCellTask,
+            "LoadCell",
+            SENSOR_STACK_SIZE,
+            paddle,
+            1,
+            &paddle->loadCellTaskHandle,
+            0
+        );
+    
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::imuTask,
+            "IMU",
+            IMU_STACK_SIZE,
+            paddle,
+            1,
+            &paddle->imuTaskHandle,
+            0
+        );
+
+    
+        // Задачи на ядре 1
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::bleSendTask,
+            "BLESend",
+            BLE_STACK_SIZE,
+            paddle,
+            2,  // Более высокий приоритет для send
+            &paddle->bleSendTaskHandle,
+            1
+        );
+    
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::bleReceiveTask,
+            "BLEReceive",
+            BLE_RECEIVE_STACK_SIZE,
+            paddle,
+            1,
+            &paddle->bleReceiveTaskHandle,
+            1
+        );
+
+        // Установка прерывания для на interruptPIN если он задан
+
+        if (mainPaddle->imu && mainPaddle->imu->DMPEnabled() && mainPaddle->imu->interruptPIN()>=0){
+            pinMode(mainPaddle->imu->interruptPIN(), INPUT);
+            attachInterrupt(digitalPinToInterrupt(mainPaddle->imu->interruptPIN()), SPServerRTOS::dmpDataReady, RISING);
+            Serial.printf("IMU interrupt pin initialized: %d\n", mainPaddle->imu->interruptPIN());
+        }
+    }
+};
+
+SmartPaddleBLEServer* SPServerRTOS::mainPaddle = nullptr;
+
 void SmartPaddleBLEServer::calibrateIMU(){
-    imu->calibrate();
+    sendData=false; 
+    if (logStream) logStream->println("CALIBRATE IMU COMMAND");
+    if (imu) imu->calibrate();
+    sendData=true;
 }
 
 void SmartPaddleBLEServer::calibrateLoads(BladeSideType blade_side){
+    sendData=false;
     logStream->println("CALIBRATE LOADS COMMAND");
     switch(blade_side){
         case LEFT_BLADE:
@@ -136,17 +405,25 @@ void SmartPaddleBLEServer::calibrateLoads(BladeSideType blade_side){
                 logStream->println("No left blade");
             break;
     }
+    sendData=true;
 }
 
 void SmartPaddleBLEServer::updateLoads(){
+    loads[0]->read();
     loadData data;
-    data.forceR = (int32_t)loads[0]->getForce();
+    data.forceR = loads[0]->getForce();
+    data.forceR_raw = loads[0]->getRawForce();
     if (loads[1])
-        data.forceL = (int32_t)loads[1]->getForce();
+    {   
+        loads[1]->read();
+        data.forceL = loads[1]->getForce();
+        data.forceL_raw = loads[1]->getRawForce();
+    }
     else
+    {
         data.forceL = 0;
-
-
+        data.forceL_raw = 0;
+    }
     if (log_load)
         Serial.printf("Loads: rigth: %d, left: %d\n",  data.forceR, data.forceL);
     
@@ -156,27 +433,41 @@ void SmartPaddleBLEServer::updateLoads(){
 
 
 // Конструктор класса SmartPaddle
-SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name,uint16_t filterFrequency)
+SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
     : SmartPaddle(),
       orientationQueue(SENSOR_QUEUE_SIZE),
       imuQueue(SENSOR_QUEUE_SIZE),
       loadsensorQueue(SENSOR_QUEUE_SIZE),
       bladeQueue(SENSOR_QUEUE_SIZE),
-      statusQueue(1),
-      FilterFrequency(filterFrequency),
       trustedDevice(nullptr),
       send_specs(false),
       is_pairing(false),
       imu(nullptr),
       loads{nullptr,nullptr},
       prefsName(prefs_Name),
-      logInterface(nullptr),
-      power_pin(-1)
+      send_paddle_orientation(false),
+      bleSendFrequency(SPServer_Default_Frequencies::BLE_SEND_FREQUENCY),
+      bleReceiveFrequency(SPServer_Default_Frequencies::BLE_RECEIVE_FREQUENCY),
+      loadCellFrequency(0),
+      imuFrequency(0),
+      orientationFrequency(0),
+      time_to_send_specs(0),
+      time_to_send_paddle_orientation(0),
+      do_connect(false),
+      time_to_connect(0),
+      sendData(false)
 {
-    run_madgwick=true;
+    //BLE Serial initialization
     serial=new SP_BLESerialServer(this);
     messageHandler=new SerialServer_MessageHandler(this);
     serial->setMessageHandler(messageHandler);    
+    connectTimer = xTimerCreate(
+        "ConnectTimer",
+        pdMS_TO_TICKS(CONNECT_DELAY_MS),
+        pdFALSE,  // one-shot timer
+        this,     // timer ID
+        connectTimerCallback
+    );
 
 }
 
@@ -197,9 +488,9 @@ class SPBLEServerCallbacks: public BLEServerCallbacks {
     
     public:
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
-        Serial.println("On Connect");
+//        Serial.println("On Connect");
         BLEAddress clientAddress(param->connect.remote_bda);
-        Serial.printf("Client address: %s\n", clientAddress.toString().c_str());
+//        Serial.printf("Client address: %s\n", clientAddress.toString().c_str());
         server->conn_id=param->connect.conn_id;
         
         if (server->connected()){
@@ -267,7 +558,12 @@ class MySecurity : public BLESecurityCallbacks {
 
 void SmartPaddleBLEServer::begin(const char* deviceName) {
 
+    // Load trusted device and blade orientation from EEPROM
     loadTrustedDevice();
+    // Load blade orientation from EEPROM
+    loadBladeOrientation();
+
+    // Initialize BLE
     Serial.println("Device name: " + String(deviceName));
     BLEDevice::init(deviceName);
     BLEDevice::setMTU(BLEMTU);
@@ -285,44 +581,48 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
 
     pServer->setCallbacks(new SPBLEServerCallbacks(this));
 
-    Serial.println("Creating service");
     BLEService *pService = pServer->createService(BLEUUID(SmartPaddleUUID::SERVICE_UUID),30,0);
     forceCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::FORCE_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    Serial.println("Creating imu characteristic");
     imuCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::IMU_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    Serial.println("Creating status characteristic");
-    statusCharacteristic = pService->createCharacteristic(
-        SmartPaddleUUID::STATUS_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-    );
-    Serial.println("Creating specs characteristic");
-    specsCharacteristic = pService->createCharacteristic(
-        SmartPaddleUUID::SPECS_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-    );
-    Serial.println("Creating orientation characteristic");
     orientationCharacteristic = pService->createCharacteristic(
         SmartPaddleUUID::ORIENTATION_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-    Serial.println("Creating blade characteristic");
-    bladeCharacteristic = pService->createCharacteristic(
-        SmartPaddleUUID::BLADE_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-    );
-    Serial.println("Starting service");
+//    bladeCharacteristic = pService->createCharacteristic(
+//        SmartPaddleUUID::BLADE_UUID,
+//        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+//    );
     pService->start();
+
+    // Start BLE serial communication
     serial->begin();
-    Serial.println("Starting advertising");
+
+    // Start BLE advertising
     startAdvertising(BLEDevice::getAdvertising());
     Serial.println("Service started");
     Serial.printf("Bonded devices count: %d\n", esp_ble_get_bond_device_num());
+
+
+    //Set default frequencies
+    loadCellFrequency = (loads[0])?loads[0]->getFrequency():0;
+    if (loads[1])
+        loadCellFrequency = (loads[1]->getFrequency()<loadCellFrequency)?loads[1]->getFrequency():loadCellFrequency;
+    if (imu){
+        imuFrequency = imu->getFrequency();
+        if (imu->DMPEnabled()&&imu->interruptPIN()>=0)
+            imuFrequency = 0;
+    }
+    
+    orientationFrequency = (imu)?imu->getFrequency():0;
+    // Start RTOS tasks
+    SPServerRTOS::startTasks(this);
+
 }
 
 void SmartPaddleBLEServer::startAdvertising(BLEAdvertising* advertising){
@@ -334,26 +634,42 @@ void SmartPaddleBLEServer::startAdvertising(BLEAdvertising* advertising){
     Serial.println("Advertising started (SmartPaddleBLEServer::startAdvertising)");
 }
 
+void SmartPaddleBLEServer::connectTimerCallback(TimerHandle_t timer) {
+    SmartPaddleBLEServer* server = static_cast<SmartPaddleBLEServer*>(pvTimerGetTimerID(timer));
+    if (server->connected()){
+        server->sendData = true;
+        BLEDevice::stopAdvertising();
+        server->sendSpecs(1500);
+        server->sendPaddleOrientation(1500);
+    }
+}
+
 
 // Метод для подключения к веслу
 bool SmartPaddleBLEServer::connect() {
     // Логика подключения к веслу
-    isConnected = true; // Установить в true, если подключение успешно
-    is_pairing = false;
-    BLEDevice::stopAdvertising();
+    is_pairing = false; 
     Serial.println("Connected");
     Serial.printf("Bonded devices count: %d\n", esp_ble_get_bond_device_num());
-    send_specs=true;
-    return isConnected;
+    isConnected = true;
+    sendData=false;
+    xTimerStart(connectTimer, 0);
+    if (eventHandler)
+        eventHandler->onConnect(this);
+
+    return true;
 }
 
 // Мето для отключения от весла
 void SmartPaddleBLEServer::disconnect() {
     // Логика отключения от весла
+
     if (isConnected){
         isConnected = false;
         pServer->disconnect(conn_id);
-        delay(500);
+        if (eventHandler)
+            eventHandler->onDisconnect(this);
+        vTaskDelay(pdMS_TO_TICKS(500));  // неблокирующая задержка
         startAdvertising(BLEDevice::getAdvertising());
     }
 }
@@ -474,16 +790,17 @@ void SmartPaddleBLEServer::startPairing(){
     } else {
         BLEDevice::stopAdvertising();
     }
-    delay(500);
     removeAllBondedDevices();
+    vTaskDelay(pdMS_TO_TICKS(500));  // неблокирующая задержка
     is_pairing = true;
     startAdvertising(BLEDevice::getAdvertising());
 }
 
 void SmartPaddleBLEServer::updateBLE(){
 
-    
-    if(connected()) {
+
+
+    if(connected()&&sendData) {
         loadData loadSensorData;
         IMUData imuDataStruct;
         PaddleStatus statusData;
@@ -501,38 +818,61 @@ void SmartPaddleBLEServer::updateBLE(){
             imuCharacteristic->notify();
         }
 
-        if(statusQueue.receive(statusData,0)) {
-            statusCharacteristic->setValue((uint8_t*)&statusData, sizeof(PaddleStatus));
-            statusCharacteristic->notify();
-        }
 
         if(orientationQueue.receive(orientationData,0)) {
             orientationCharacteristic->setValue((uint8_t*)&orientationData, sizeof(OrientationData));
             orientationCharacteristic->notify();
         }
 
-        if(bladeQueue.receive(bladeData,0)) {
-            bladeCharacteristic->setValue((uint8_t*)&bladeData, sizeof(BladeData));
-            bladeCharacteristic->notify();
+//        if(bladeQueue.receive(bladeData,0)) {
+//            bladeCharacteristic->setValue((uint8_t*)&bladeData, sizeof(BladeData));
+//            bladeCharacteristic->notify();
+//        }
+
+        if(send_specs && millis()>=time_to_send_specs) {
+            JsonDocument jsonDoc;
+            JsonObject value = jsonDoc.to<JsonObject>();
+            
+            value[SP_BLESerial_Data::SPECS_DATA::IMU_FREQUENCY] = FilterFrequency;
+            value[SP_BLESerial_Data::SPECS_DATA::HAS_LEFT_BLADE] = (loads[1] != nullptr);
+            value[SP_BLESerial_Data::SPECS_DATA::HAS_RIGHT_BLADE] = (loads[0] != nullptr);
+            value[SP_BLESerial_Data::SPECS_DATA::FIRMWARE_VERSION] = specs.firmwareVersion;
+            value[SP_BLESerial_Data::SPECS_DATA::PADDLE_MODEL] = specs.paddleModel;
+            value[SP_BLESerial_Data::SPECS_DATA::BLADE_POWER] = specs.bladePower;
+            value[SP_BLESerial_Data::SPECS_DATA::LENGTH] = specs.length;
+            value[SP_BLESerial_Data::SPECS_DATA::PADDLE_ID] = specs.PaddleID;
+            value[SP_BLESerial_Data::SPECS_DATA::PADDLE_TYPE] = specs.paddleType;
+            
+            serial->sendData(SP_BLESerial_Data::SPECS, &value);
+            send_specs = false;
         }
 
-        if(send_specs) {
-            specsCharacteristic->setValue((uint8_t*)&specs, sizeof(PaddleSpecs));
-            specsCharacteristic->notify();
-            send_specs=false;
+        if (send_paddle_orientation && millis()>=time_to_send_paddle_orientation) {
+            JsonDocument jsonDoc;
+            JsonObject value = jsonDoc.to<JsonObject>();
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::Y_AXIS_DIRECTION] = bladeOrientation.YAxisDirection;
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_ANGLE] = bladeOrientation.rightBladeAngle;
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_ANGLE] = bladeOrientation.leftBladeAngle;
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_X] = bladeOrientation.rightBladeVector[0];
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Y] = bladeOrientation.rightBladeVector[1];
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Z] = bladeOrientation.rightBladeVector[2];
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_X] = bladeOrientation.leftBladeVector[0];
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Y] = bladeOrientation.leftBladeVector[1];
+            value[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Z] = bladeOrientation.leftBladeVector[2];
+            serial->sendData(SP_BLESerial_Data::BLADE_ORIENTATION, &value);
+            send_paddle_orientation = false;
         }
-
-        if (serial) serial->update();
 
     }
+    if (connected()&&serial) serial->update();
+
 }
 
 void SmartPaddleBLEServer::shutdown() {
-    Serial.printf("Shutdown Paddle. PIN: %d\n", power_pin);
     if (logStream)
         logStream->println("Shutdown Paddle");
-    delay(100);
-    if (power_pin>=0) digitalWrite(power_pin, LOW);
+    if (eventHandler)
+        eventHandler->onShutdown(this);
 }
 
 IMUData SmartPaddleBLEServer::getIMUData(){
@@ -553,3 +893,92 @@ loadData SmartPaddleBLEServer::getLoadData(){
 OrientationData SmartPaddleBLEServer::getOrientationData(){
     return imu->getOrientation();
 }
+
+void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
+    if (!imu) return;
+
+    // Получаем текущий кватернион ориентации
+    IMUData data = imu->getData();
+    SP_Math::Quaternion q(data.q0, data.q1, data.q2, data.q3);
+
+    // Вектор вертикально вверх в глобальной системе координат
+    SP_Math::Vector global_up(0.0f, 0.0f, 1.0f);
+
+    // Преобразуем в локальную систему координат устройства
+    SP_Math::Vector local_up = q.conjugate().rotate(global_up);
+
+    // Проекция вектора на плоскость XZ локальной системы (игнорируем Y компоненту)
+    float x = local_up.x();
+    float z = local_up.z();
+    
+    // Вычисляем угол между проекцией и осью Z в локальной системе координат
+    float blade_angle = atan2(x, z);
+
+    if (logStream) {
+        logStream->printf("Calibrating %s blade angle\n", 
+            blade_side == RIGHT_BLADE ? "right" : "left");
+        logStream->printf("Global normal vector: %.3f, %.3f, %.3f\n", 
+            local_up.x(), local_up.y(), local_up.z());
+        logStream->printf("Blade angle around Y axis: %.1f degrees\n", 
+            blade_angle * 180.0f / M_PI);
+    }
+
+    // Сохраняем угол
+    if (blade_side == RIGHT_BLADE) {
+        bladeOrientation.rightBladeAngle = blade_angle;
+        bladeOrientation.rightBladeVector[0] = x;
+        bladeOrientation.rightBladeVector[1] = 0;
+        bladeOrientation.rightBladeVector[2] = z;
+    } else if (blade_side == LEFT_BLADE) {
+        bladeOrientation.leftBladeAngle = blade_angle;
+        bladeOrientation.leftBladeVector[0] = x;
+        bladeOrientation.leftBladeVector[1] = 0;
+        bladeOrientation.leftBladeVector[2] = z;
+    } else {
+        Serial.printf("Calibrate blade angle command with no side\n");
+        bladeOrientation.rightBladeAngle = blade_angle;
+        bladeOrientation.rightBladeVector[0] = x;
+        bladeOrientation.rightBladeVector[1] = 0;
+        bladeOrientation.rightBladeVector[2] = z;        
+        bladeOrientation.leftBladeAngle = blade_angle;
+        bladeOrientation.leftBladeVector[0] = x;
+        bladeOrientation.leftBladeVector[1] = 0;
+        bladeOrientation.leftBladeVector[2] = z;
+    }
+
+    // Сохраняем в память
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), false);
+    if (blade_side == RIGHT_BLADE) {
+        prefs.putFloat("rightBladeAngle", blade_angle);
+        prefs.putFloat("rightBVectorX", x);
+        prefs.putFloat("rightBVectorY", 0);
+        prefs.putFloat("rightBVectorZ", z);
+    } else if (blade_side == LEFT_BLADE) {
+        prefs.putFloat("leftBladeAngle", blade_angle);
+        prefs.putFloat("leftBVectorX", x);
+        prefs.putFloat("leftBVectorY", 0);
+        prefs.putFloat("leftBVectorZ", z);
+    }
+    prefs.end();
+    sendPaddleOrientation(0);
+}
+
+bool SmartPaddleBLEServer::loadBladeOrientation(){
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), true);
+     bladeOrientation.YAxisDirection = prefs.getInt("yAxisDirection", 1);
+    bladeOrientation.rightBladeAngle = prefs.getFloat("rightBladeAngle", 0);
+    bladeOrientation.leftBladeAngle = prefs.getFloat("leftBladeAngle", 0);
+    bladeOrientation.rightBladeVector[0] = prefs.getFloat("rightBVectorX", 0);
+    bladeOrientation.rightBladeVector[1] = prefs.getFloat("rightBVectorY", 0);
+    bladeOrientation.rightBladeVector[2] = prefs.getFloat("rightBVectorZ", 1);
+    bladeOrientation.leftBladeVector[0] = prefs.getFloat("leftBVectorX", 0);
+    bladeOrientation.leftBladeVector[1] = prefs.getFloat("leftBVectorY", 0);
+    bladeOrientation.leftBladeVector[2] = prefs.getFloat("leftBVectorZ", 1);
+    prefs.end();
+    sendPaddleOrientation(1000);
+    return true;
+}
+
+

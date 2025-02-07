@@ -55,10 +55,10 @@ private:
     std::string prefsName;       ///< Имя для сохранения настроек
 
     // Методы калибровки
-    void ellipsoidFitting(float* x, float* y, float* z, int n,
-                          float* centerX, float* centerY, float* centerZ,
-                          float* scaleX, float* scaleY, float* scaleZ);
+
+
     void adaptiveCalibrateMagnetometer(float* q);
+    void initialCalibrateMagnetometer(bool ransac = true, bool geometric = true);
 
 public:
     /**
@@ -79,6 +79,7 @@ public:
     // Реализация интерфейса IIMU
     bool begin() override;                 
     void calibrate() override;             
+    void calibrateCompass() override;
     void getData(IMUData& data) override;  
     IMUData getData() override;            
     bool isCalibrationValid() override;    

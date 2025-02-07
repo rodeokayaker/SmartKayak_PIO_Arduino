@@ -17,6 +17,8 @@
 
 #define INCLUDE_vTaskDelayUntil 1
 
+#define Y_AXIS_DIRECTION 1   //Ось Y IMU датчика направлена на правую лопатку
+
 
 // Определения пинов
 constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
@@ -25,9 +27,12 @@ constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = 9;
 constexpr int I2C_SCL = 10;
-constexpr int INTERRUPT_PIN = -1;
-constexpr int POWER_PIN = 1;
+constexpr int INTERRUPT_PIN = 0;
+constexpr int POWER_PIN = 20;
 constexpr int SWITCH_OFF_PIN = 4;
+constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
+
+
 
 // FreeRTOS определения
 #define SENSOR_STACK_SIZE 4096
@@ -50,8 +55,8 @@ TaskHandle_t serialTaskHandle = NULL;
 // Глобальные объекты
 LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
-SmartPaddleBLEServer paddle("SmartPaddle",IMU_FREQUENCY); //  работаем как сервер
-IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN"); 
+SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
+IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN", true, INTERRUPT_PIN); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -93,158 +98,24 @@ class RGBLedInterface: public ILogInterface{
     }
 };
 
+void SwitchOff(){
+    Serial.printf("Shutdown Paddle. PIN: %d\n", POWER_PIN);
+    if (POWER_PIN>=0) digitalWrite(POWER_PIN, LOW);
+}
 
-static uint32_t last_load_time = millis();
-static float frequency_load = 10;
 
 class switchOffButton: public ButtonDriver {
     public:
     switchOffButton(int pin): ButtonDriver(pin) {}
     void onLongPress() override {
         Serial.println("Switch off button long press");
-        digitalWrite(POWER_PIN, LOW);
+        SwitchOff();
     }
     void onRelease() override { Serial.println("Switch off button release");}
     void onPress() override { Serial.println("Switch off button press");}
 };
 
 switchOffButton OffButton(SWITCH_OFF_PIN);
-
-
-// Задача чтения тензодатчиков
-void loadCellTask(void *pvParameters) {
-
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/LOAD_FREQUENCY);
-    
-    while(1) {
-        int32_t time_diff = millis()-last_load_time;
-        last_load_time = millis();
-/*        frequency_load = 100.0/(99.0/frequency_load+time_diff/1000.0);
-        Serial.printf("Load cell callback time = %d, frequency = %f\n", time_diff, frequency_load);*/
-        if (paddle.connected()) {
-            paddle.updateLoads();
-        }
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-}
-
-// Задача чтения IMU
-
-static uint32_t last_imu_time = millis();
-static float frequency_imu = 98;
-
-
-void PrintIMUDataAngles(IMUSensor_GY87* imuSensor) {
-    IMUData imuData = imuSensor->getData();
-    OrientationData orientation = imuSensor->getOrientation();
-
-    // Вычисляем разницу кватернионов
-    float q_diff[4];
-    // q_diff = q1 * q2^(-1)
-    float q2_conj[4] = {orientation.q0, -orientation.q1, -orientation.q2, -orientation.q3};
-    
-    // Нормализуем сопряженный кватернион
-    float norm = sqrt(q2_conj[0]*q2_conj[0] + q2_conj[1]*q2_conj[1] + 
-                     q2_conj[2]*q2_conj[2] + q2_conj[3]*q2_conj[3]);
-    
-    for(int i = 0; i < 4; i++) {
-        q2_conj[i] /= norm;
-    }
-    
-    // Умножаем кватернионы
-    q_diff[0] = imuData.q0*q2_conj[0] - imuData.q1*q2_conj[1] - 
-                imuData.q2*q2_conj[2] - imuData.q3*q2_conj[3];
-    q_diff[1] = imuData.q0*q2_conj[1] + imuData.q1*q2_conj[0] + 
-                imuData.q2*q2_conj[3] - imuData.q3*q2_conj[2];
-    q_diff[2] = imuData.q0*q2_conj[2] - imuData.q1*q2_conj[3] + 
-                imuData.q2*q2_conj[0] + imuData.q3*q2_conj[1];
-    q_diff[3] = imuData.q0*q2_conj[3] + imuData.q1*q2_conj[2] - 
-                imuData.q2*q2_conj[1] + imuData.q3*q2_conj[0];
-
-    // Вычисляем углы Эйлера из разницы кватернионов
-    float yaw = atan2(2.0f * (q_diff[0]*q_diff[3] + q_diff[1]*q_diff[2]), 
-                      1.0f - 2.0f * (q_diff[2]*q_diff[2] + q_diff[3]*q_diff[3]));
-    float pitch = asin(2.0f * (q_diff[0]*q_diff[2] - q_diff[3]*q_diff[1]));
-    float roll = atan2(2.0f * (q_diff[0]*q_diff[1] + q_diff[2]*q_diff[3]), 
-                      1.0f - 2.0f * (q_diff[1]*q_diff[1] + q_diff[2]*q_diff[2]));
-
-    // Преобразуем радианы в градусы
-    yaw *= 180.0f / M_PI;
-    pitch *= 180.0f / M_PI;
-    roll *= 180.0f / M_PI;
-
-    // Выводим результаты
-    Serial.printf("Euler angles difference - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
-                 yaw, pitch, roll);
-}
-
-void PrintIMUData(IMUSensor_GY87* imuSensor) {
-    IMUData imuData = imuSensor->getData();
-    OrientationData orientation = imuSensor->getOrientation();
-    float yaw=180.0f/M_PI*atan2(2.0f*(imuData.q0*imuData.q1+imuData.q2*imuData.q3),1.0f-2.0f*(imuData.q1*imuData.q1+imuData.q2*imuData.q2));
-    float pitch=180.0f/M_PI*asin(2.0f*(imuData.q0*imuData.q2-imuData.q1*imuData.q3));
-    float roll=180.0f/M_PI*atan2(2.0f*(imuData.q0*imuData.q3+imuData.q1*imuData.q2),1.0f-2.0f*(imuData.q2*imuData.q2+imuData.q3*imuData.q3));
-    Serial.printf("DPR data - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
-                 yaw, pitch, roll);
-
-    yaw=180.0f/M_PI*atan2(2.0f*(orientation.q0*orientation.q1+orientation.q2*orientation.q3),1.0f-2.0f*(orientation.q1*orientation.q1+orientation.q2*orientation.q2));
-    pitch=180.0f/M_PI*asin(2.0f*(orientation.q0*orientation.q2-orientation.q1*orientation.q3));
-    roll=180.0f/M_PI*atan2(2.0f*(orientation.q0*orientation.q3+orientation.q1*orientation.q2),1.0f-2.0f*(orientation.q2*orientation.q2+orientation.q3*orientation.q3));
-    Serial.printf("Madgwick - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n", 
-                 yaw, pitch, roll);
-}
-
-
-void imuTask(void *pvParameters) {
-    
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/imuSensor.getFrequency());
-    
-    while(1) {
-/*        int32_t time_diff = millis()-last_imu_time;
-        last_imu_time = millis();
-        frequency_imu = 100.0/(99.0/frequency_imu+time_diff/1000.0);
-        Serial.printf("IMU callbck time = %d, frequency = %f\n", time_diff, frequency_imu);*/
-
-        
-
-        imuSensor.update();
-
-        if(log_imu) {
-            //PrintIMUDataAngles(&imuSensor);
-            PrintIMUData(&imuSensor);
-        }
-
-
-        if (paddle.connected()) {
-            paddle.updateIMU();
-        }
-
-
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-    }
-}
-
-
-// Задача обработки BLE
-static uint32_t last_ble_time = millis();
-static float frequency_ble = 100;
-
-void bleTask(void *pvParameters) {
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_FREQUENCY);
-    
-    while(1) {
-        int32_t time_diff = millis()-last_ble_time;
-        last_ble_time = millis();
-        frequency_ble = 100.0/(99.0/frequency_ble+time_diff/1000.0);
-//        Serial.printf("BLE callbck time = %d, frequency = %f\n", time_diff, frequency_ble);
-        paddle.updateBLE();
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-}
 
 // Команды калибровки
 #define CMD_CALIBRATE_LOAD "calibrate_load"
@@ -259,21 +130,68 @@ void bleTask(void *pvParameters) {
 #define CMD_UNPAIR "unpair"
 #define CMD_BLE_STATUS "ble_status"
 
+// Обработчик событий для Весла
+class PaddleEventHandler: public SP_Event_Handler {
+    private:
+    TimerHandle_t shutdownTimer;
+
+    static void shutdownTimerCallback(TimerHandle_t timer) {
+        SwitchOff();
+    }
+
+    public:
+    PaddleEventHandler() {
+        shutdownTimer = xTimerCreate(
+            "ShutdownTimer",
+            pdMS_TO_TICKS(SHUTDOWN_DELAY_MS),
+            pdFALSE,  // one-shot timer
+            this,
+            shutdownTimerCallback
+        );
+        xTimerStart(shutdownTimer, 0);
+    }
+
+    ~PaddleEventHandler() {
+        if (shutdownTimer) {
+            xTimerDelete(shutdownTimer, 0);
+        }
+    }
+
+    void onConnect(SmartPaddle* paddle) override {
+        Serial.println("Paddle connected");
+        xTimerStop(shutdownTimer, 0);
+    }
+
+    void onDisconnect(SmartPaddle* paddle) override {
+        Serial.println("Paddle disconnected");
+        xTimerStart(shutdownTimer, 0);
+    }
+
+    void onShutdown(SmartPaddle* paddle) override {
+        SwitchOff();
+    }
+};
+
+PaddleEventHandler eventHandler;
+
 // Обработка команд
 void processCommand(const char* cmd) {
 
     paddle.getSerial()->log(cmd);
     if(strcmp(cmd, CMD_CALIBRATE_LOAD) == 0) {
-        leftCell.calibrate();
-        rightCell.calibrate();  
+        paddle.setLogStream(&Serial);
+        paddle.calibrateLoads(ALL_BLADES);
     }
     else if(strcmp(cmd, CMD_CALIBRATE_IMU) == 0) {
-        imuSensor.calibrate();
+        Serial.printf("Calibrate IMU command\n");
+        paddle.setLogStream(&Serial);
+        Serial.printf("Log stream set to Serial\n");
+        paddle.calibrateIMU();
     }
     else if(strcmp(cmd, CMD_CALIBRATE_ALL) == 0) {
-        leftCell.calibrate();
-        rightCell.calibrate();
-        imuSensor.calibrate();
+        paddle.setLogStream(&Serial);
+        paddle.calibrateLoads(ALL_BLADES);
+        paddle.calibrateIMU();
     }
     else if(strcmp(cmd, CMD_HELP) == 0) {
         Serial.println("Available commands:");
@@ -416,17 +334,6 @@ void setupSerialInterrupt() {
     Serial.println("Serial interrupt setup complete");
 }
 
-void bleSerialTask(void *pvParameters) {
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/BLE_SERIAL_FREQUENCY);
-    
-    while(1) {
-        if(paddle.getSerial()) 
-            paddle.getSerial()->updateJSON();
-        
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-    }
-}
 
 void setup() {
     pinMode(POWER_PIN, OUTPUT);
@@ -439,17 +346,17 @@ void setup() {
     Wire.end();
     Wire.begin(I2C_SDA, I2C_SCL);
     
-    
     Serial.println("\nSmart Paddle Initializing...");
     
     // Инициализация тензодатчиков
-    leftCell.begin();
-    rightCell.begin();
+    leftCell.begin(HX711_DEFAULT_FREQUENCY);
+    rightCell.begin(HX711_DEFAULT_FREQUENCY);
 
     // Инициализация IMU
 
     imuSensor.setInterruptPin(INTERRUPT_PIN);
     imuSensor.setAutoCalibrateMag(false);
+
     imuSensor.begin();
 
     // Инициализация Весла
@@ -459,9 +366,9 @@ void setup() {
     paddleId = generatePaddleID();
     paddle.setPaddleID(paddleId);
     paddle.setFilterFrequency(IMU_FREQUENCY);
-    paddle.setPowerPin(POWER_PIN);
+    paddle.setEventHandler(&eventHandler);
+    paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
     // Инициализация Весла
-    paddle.begin("SmartPaddle v. 1.0");
     paddle.setIMU(&imuSensor);
     paddle.setLoads(&rightCell, &leftCell);
 
@@ -484,38 +391,6 @@ void setup() {
 
     Serial.println("Type 'help' for available commands.\n");        
     
-    // Создание задач на ядре 0
-    xTaskCreatePinnedToCore(
-        loadCellTask,
-        "LoadCell",
-        SENSOR_STACK_SIZE,
-        NULL,
-        1,
-        NULL,
-        0
-    );
-    
-    xTaskCreatePinnedToCore(
-        imuTask,
-        "IMU",
-        IMU_STACK_SIZE,
-        NULL,
-        1,
-        NULL,
-        0
-    );
-
-    
-    // Задачи на ядре 1
-    xTaskCreatePinnedToCore(
-        bleTask,
-        "BLE",
-        BLE_STACK_SIZE,
-        NULL,
-        2,  // Более высокий приоритет для BLE
-        NULL,
-        1
-    );
     
     xTaskCreatePinnedToCore(
         serialCommandTask,
@@ -527,20 +402,10 @@ void setup() {
         1
     );
 
-    xTaskCreatePinnedToCore(
-        bleSerialTask,
-        "BLESerial",
-        BLE_STACK_SIZE,
-        NULL,
-        1,
-        NULL,
-        1
-    );
-    
 
     setupSerialInterrupt();
     
-
+    paddle.begin("SmartPaddle v. 1.2");
     Serial.println("Smart Paddle Ready!");
     Serial.println("Type 'help' for available commands");
     digitalWrite(POWER_PIN, HIGH);   
@@ -549,5 +414,7 @@ void setup() {
 
 
 void loop() {
+    digitalWrite(POWER_PIN, HIGH); 
+
     vTaskDelete(NULL);
 } 

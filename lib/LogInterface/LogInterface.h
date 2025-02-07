@@ -10,8 +10,9 @@ class ILogInterface: public Stream{
 
 //Log interface
     virtual void logQuaternion(const float* q){};
-    virtual void logLoads(const float* loads){};
-    virtual void logIMU(const float* imu){};
+    virtual void logLoads(const loadData& loads){};
+    virtual void logIMU(const IMUData& imu){};
+    virtual void logOrientation(const OrientationData& orientation){};
     // Stream implementation
 /*    virtual int available() override 
     {

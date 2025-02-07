@@ -48,15 +48,44 @@ struct BladeData {
 
 
 struct PaddleSpecs{
-    uint32_t PaddleID;                // Paddle ID
-    PaddleType paddleType;                // Blade type (TWO_BLADES or ONE_BLADE)
-    float leftFeatheredQuaternion[4];     // Feathered orientation
-    float rightFeatheredQuaternion[4];     // Feathered orientation
+    String PaddleID;                // Paddle ID
+    PaddleType paddleType;          // Blade type (TWO_BLADES or ONE_BLADE)
+    float length;                   // in meters
+    float bladePower;
+    uint16_t firmwareVersion;
+    String paddleModel;
+};
+
+struct BladeOrientation{
+    signed char YAxisDirection;     // 1 if Y axis directs right, -1 if Y axis directs left
+    float rightBladeAngle;          // in radians
+    float rightBladeVector[3];      // normal vector in paddleOrientation
+    float leftBladeAngle;           // in radians
+    float leftBladeVector[3];      // normal vector in paddleOrientation
 };
 
 struct PaddleStatus{
     int8_t batteryLevel;
     int8_t temperature;
+};
+
+class SP_Event_Handler {
+    public:
+    virtual void onUpdateIMU(IMUData& imuData, SmartPaddle* paddle) {};
+    virtual void onUpdateOrientation(OrientationData& orientationData, SmartPaddle* paddle) {};
+    virtual void onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {};
+    virtual void onUpdateBlade(BladeData& bladeData, SmartPaddle* paddle) {};
+    virtual void onUpdateSpecs(PaddleSpecs& specsData, SmartPaddle* paddle) {};
+    virtual void onUpdateStatus(PaddleStatus& statusData, SmartPaddle* paddle) {};
+    virtual void onUpdateBladeAngle(BladeOrientation& bladeOrientation, SmartPaddle* paddle) {};
+    virtual void onConnect(SmartPaddle* paddle) {};
+    virtual void onDisconnect(SmartPaddle* paddle) {};
+    virtual void onPairing(SmartPaddle* paddle) {};
+    virtual void onPairingDone(SmartPaddle* paddle, BLEAddress* address) {};
+    virtual void onUnpair(SmartPaddle* paddle) {};
+    virtual void onShutdown(SmartPaddle* paddle) {};
+    virtual void onError(SmartPaddle* paddle) {};
+    virtual void onUpdate(SmartPaddle* paddle) {};
 };
 
 
@@ -67,30 +96,24 @@ class SP_BLESerial;
 class SmartPaddle {
     protected:
     PaddleSpecs specs;
-    uint32_t KayakID;                // Kayak ID
     PaddleStatus status;
+    BladeOrientation bladeOrientation;
     bool isConnected;                  // Paddle connection status
-    bool run_madgwick;
     SP_BLESerial* serial;
     BLESerialMessageHandler* messageHandler;
-    
+    static int BLEMTU;
+    SP_Event_Handler* eventHandler;
     public:
     SmartPaddle():
         specs(),
-        KayakID(0),
         status(),
         isConnected(false),
-        run_madgwick(false),
         serial(nullptr),
-        messageHandler(nullptr){}
+        messageHandler(nullptr),
+        eventHandler(nullptr){}
     virtual void begin(const char* deviceName)=0;
-    virtual void setPaddleID(uint32_t id)=0;
     virtual void setFilterFrequency(uint32_t frequency)=0;
-    virtual void setRunMadgwick(bool run){run_madgwick=run;}
     
-    virtual void updateIMU()=0;
-    virtual void updateLoads()=0;
-    virtual void updateBLE()=0;
     virtual uint32_t paddleMillis()=0;
 
     virtual IMUData getIMUData()=0;
@@ -104,13 +127,14 @@ class SmartPaddle {
     virtual SP_BLESerial* getSerial() {return serial;}
     virtual void calibrateIMU()=0;
     virtual void calibrateLoads(BladeSideType blade_side)=0;
+    virtual void calibrateBladeAngle(BladeSideType blade_side)=0;
+    virtual BladeOrientation getBladeAngles() {return bladeOrientation;}
+    virtual PaddleSpecs getSpecs() {return specs;}
+    virtual PaddleStatus getStatus() {return status;}
     virtual ~SmartPaddle();
-
+    void setEventHandler(SP_Event_Handler* handler) {eventHandler = handler;}
  
 };
-
-extern std::map<void*, SmartPaddle*> PaddleMap;
-extern int BLEMTU;
 
 #endif
 

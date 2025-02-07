@@ -5,6 +5,7 @@
 
 #include "IMUSensor_GY85.h"
 #include <Preferences.h>
+#include "CalibrationUtils.h"
 
 #define ADAPTIVE_GAIN 0.01f
 #define AUTO_CALIB_SAVE_INTERVAL 60000 // one time in 10 minutes if we update data 100HZ
@@ -111,132 +112,175 @@ void IMUSensor_GY85::calibrate() {
     calibData.gyroOffset[1] = -gy_sum / samples;
     calibData.gyroOffset[2] = -gz_sum / samples;
     
-    // Калибровка магнитометра методом Ellipsoid Fitting
-    logStream->println("Rotate device in all directions for magnetometer calibration");    
-    const int samples_mag = 1000;
-    float magX[samples_mag], magY[samples_mag], magZ[samples_mag];
-    
-    for(int i = 0; i < samples_mag; i++) {
-        int mx, my, mz;
-        mag.read(&mx, &my, &mz);
-        magX[i] = mx;
-        magY[i] = my;  
-        magZ[i] = mz;
-        delay(10);
-    }
-    
-    // Вычисление параметров эллипсоида
-    float centerX, centerY, centerZ;
-    float scaleX, scaleY, scaleZ;
-    ellipsoidFitting(magX, magY, magZ, samples_mag, 
-                     &centerX, &centerY, &centerZ, 
-                     &scaleX, &scaleY, &scaleZ);
-    
-    // Установка калибровочных параметров
-    calibData.magOffset[0] = (int16_t)centerX;
-    calibData.magOffset[1] = (int16_t)centerY;
-    calibData.magOffset[2] = (int16_t)centerZ;
-    
-    calibData.magScale[0] = scaleX;
-    calibData.magScale[1] = scaleY;
-    calibData.magScale[2] = scaleZ;
+    initialCalibrateMagnetometer(true, false);
     
     saveCalibrationData();
     calibValid = true;
     logStream->println("Calibration complete!");
 }
 
-void IMUSensor_GY85::ellipsoidFitting(float* x, float* y, float* z, int n,
-                                      float* centerX, float* centerY, float* centerZ,
-                                      float* scaleX, float* scaleY, float* scaleZ) {
-    // Вычисление средних значений
-    float avgX = 0, avgY = 0, avgZ = 0;
-    for(int i = 0; i < n; i++) {
-        avgX += x[i];
-        avgY += y[i];
-        avgZ += z[i];
+void IMUSensor_GY85::initialCalibrateMagnetometer(bool ransac, bool geometric) {
+    const int samples = 2000;
+    float* x = nullptr;
+    float* y = nullptr;
+    float* z = nullptr;
+
+    if (geometric||ransac) {
+        x = new float[samples];
+        y = new float[samples];
+        z = new float[samples];
     }
-    avgX /= n;
-    avgY /= n;
-    avgZ /= n;
+    
+    // 1. Сбор данных и калибровка по минимуму и максимуму
 
-    // Вычисление матрицы ковариации
-    float covXX = 0, covXY = 0, covXZ = 0, covYY = 0, covYZ = 0, covZZ = 0;
-    for(int i = 0; i < n; i++) {
-        float dx = x[i] - avgX;
-        float dy = y[i] - avgY;
-        float dz = z[i] - avgZ;
-        covXX += dx * dx;
-        covXY += dx * dy;
-        covXZ += dx * dz;
-        covYY += dy * dy;
-        covYZ += dy * dz;
-        covZZ += dz * dz;
+    int16_t minX = 32767, maxX = -32767;
+    int16_t minY = 32767, maxY = -32767;
+    int16_t minZ = 32767, maxZ = -32767;
+
+    logStream->println("\nRotate device in all directions for magnetometer calibration");
+    logStream->println("This will take 20 seconds...");
+
+    for(int i = 0; i < samples; i++) {
+        int mx, my, mz;
+        mag.read(&mx, &my, &mz);
+        if (geometric||ransac) {
+            x[i] = mx;
+            y[i] = my;
+            z[i] = mz;
+        }
+        if(mx < minX) minX = mx;
+        if(mx > maxX) maxX = mx;
+        if(my < minY) minY = my;
+        if(my > maxY) maxY = my;
+        if(mz < minZ) minZ = mz;
+        if(mz > maxZ) maxZ = mz;
+        delay(10);
     }
-    covXX /= n;
-    covXY /= n;
-    covXZ /= n;
-    covYY /= n;
-    covYZ /= n;
-    covZZ /= n;
+    
+    
+    calibData.magOffset[0] = (maxX + minX) / 2;
+    calibData.magOffset[1] = (maxY + minY) / 2;
+    calibData.magOffset[2] = (maxZ + minZ) / 2;
+        
+    calibData.magScale[0] = 2.0f / (maxX - minX);
+    calibData.magScale[1] = 2.0f / (maxY - minY);
+    calibData.magScale[2] = 2.0f / (maxZ - minZ);
 
-    // Вычисление собственных значений и векторов матрицы ковариации
-    float a = covYY*covZZ - covYZ*covYZ;
-    float b = covXZ*covYZ - covXY*covZZ;
-    float c = covXY*covYZ - covXZ*covYY;
-    float d = covXX*covZZ - covXZ*covXZ;
-    float e = covXX*covYY - covXY*covXY;
-    float f = covXX*a + covXY*b + covXZ*c;
+    if (!geometric&&!ransac)
+    {
 
-    float q = (covXX + covYY + covZZ) / 3;
-    float p = (covXX - q)*(covXX - q) + (covYY - q)*(covYY - q) + (covZZ - q)*(covZZ - q) + 2*(covXY*covXY + covXZ*covXZ + covYZ*covYZ);
-    p = sqrt(p / 6);
+        logStream->println("Magnetometer calibration completed");
+        logStream->printf("Offset: [%f, %f, %f]\n", 
+                  calibData.magOffset[0], 
+                  calibData.magOffset[1], 
+                  calibData.magOffset[2]);
+        logStream->printf("Scale: [%f, %f, %f]\n", 
+                  calibData.magScale[0], 
+                  calibData.magScale[1], 
+                  calibData.magScale[2]);
+        return;
+    }
 
-    float r = (1/p) * ((covXX - q)*(covYY - q)*(covZZ - q) + 2*covXY*covXZ*covYZ - (covXX - q)*covYZ*covYZ - (covYY - q)*covXZ*covXZ - (covZZ - q)*covXY*covXY);
-    r = r / 2;
 
-    float phi = acos(r) / 3;
-    float eig1 = q + 2*p*cos(phi);
-    float eig2 = q + 2*p*cos(phi + 2*M_PI/3);
-    float eig3 = 3*q - eig1 - eig2;
+    
+    bool* inliers = nullptr;
+    float centerX=(maxX+minX)/2, centerY=(maxY+minY)/2, centerZ=(maxZ+minZ)/2;
+    float radX=(maxX-minX)/2, radY=(maxY-minY)/2, radZ=(maxZ-minZ)/2;
 
-    float vec1X = (a*(eig1 - covYY) - b*covXY) / (covXY*(eig1 - covYY) - (eig1 - covXX)*covYZ);
-    float vec1Y = (b*(eig1 - covXX) - a*covXY) / (covXY*(eig1 - covYY) - (eig1 - covXX)*covYZ);
-    float vec1Z = 1;
+    logStream->printf("Initial center: %f %f %f\n", centerX, centerY, centerZ);
+    logStream->printf("Initial radius: %f %f %f\n", radX, radY, radZ);
 
-    float vec2X = (a*(eig2 - covYY) - b*covXY) / (covXY*(eig2 - covYY) - (eig2 - covXX)*covYZ);
-    float vec2Y = (b*(eig2 - covXX) - a*covXY) / (covXY*(eig2 - covYY) - (eig2 - covXX)*covYZ);
-    float vec2Z = 1;
+    // 4. RANSAC фильтрация и оценка параметров
+    if (ransac) {
+        logStream->printf("RANSAC filtering...\n");
+        // Нормализация данных
+        for(int i = 0; i < samples; i++) {
+            x[i] = (x[i] - centerX) / radX;
+            y[i] = (y[i] - centerY) / radY;
+            z[i] = (z[i] - centerZ) / radZ;
+        }
 
-    float vec3X = vec1Y*vec2Z - vec1Z*vec2Y;
-    float vec3Y = vec1Z*vec2X - vec1X*vec2Z;
-    float vec3Z = vec1X*vec2Y - vec1Y*vec2X;
+        inliers = new bool[samples];    
+    
+        const float ransacThreshold = 0.2f*max(max(radX, radY), radZ);
+        const int maxIterations = 100;
+    
 
-    // Нормализация собственных векторов
-    float norm1 = sqrt(vec1X*vec1X + vec1Y*vec1Y + vec1Z*vec1Z);
-    vec1X /= norm1;
-    vec1Y /= norm1;
-    vec1Z /= norm1;
+    
+        CalibrationUtils::ransacEllipsoidFilter(x, y, z, inliers, samples, ransacThreshold, maxIterations,
+                             &centerX, &centerY, &centerZ, &radX, &radY, &radZ);
 
-    float norm2 = sqrt(vec2X*vec2X + vec2Y*vec2Y + vec2Z*vec2Z);
-    vec2X /= norm2;
-    vec2Y /= norm2;
-    vec2Z /= norm2;
+        calibData.magOffset[0] = centerX/calibData.magScale[0] + calibData.magOffset[0];
+        calibData.magOffset[1] = centerY/calibData.magScale[1] + calibData.magOffset[1];
+        calibData.magOffset[2] = centerZ/calibData.magScale[2] + calibData.magOffset[2];
+    
+        calibData.magScale[0] *= 1.0f/radX;
+        calibData.magScale[1] *= 1.0f/radY;
+        calibData.magScale[2] *= 1.0f/radZ;
 
-    float norm3 = sqrt(vec3X*vec3X + vec3Y*vec3Y + vec3Z*vec3Z);
-    vec3X /= norm3;
-    vec3Y /= norm3;
-    vec3Z /= norm3;
+        logStream->printf("RANSAC center: %f %f %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
+        logStream->printf("RANSAC radius: %f %f %f\n", 1/calibData.magScale[0], 1/calibData.magScale[1], 1/calibData.magScale[2]);
+    } else{
+        centerX=(maxX+minX)/2;
+        centerY=(maxY+minY)/2;
+        centerZ=(maxZ+minZ)/2;
+        radX=(maxX-minX)/2;
+        radY=(maxY-minY)/2;
+        radZ=(maxZ-minZ)/2;
+    }
+    
+    if (geometric) {
+        // Нормализация данных
+        for(int i = 0; i < samples; i++) {
+            x[i] = (x[i] - centerX) / radX;
+            y[i] = (y[i] - centerY) / radY;
+            z[i] = (z[i] - centerZ) / radZ;
+        }
+        centerX = 0;
+        centerY = 0;
+        centerZ = 0;
+        radX = 1;
+        radY = 1;
+        radZ = 1;
 
-    // Вычисление параметров эллипсоида
-    *centerX = avgX;
-    *centerY = avgY;
-    *centerZ = avgZ;
+        logStream->printf("Geometric calibration...\n");
+        CalibrationUtils::geometricCalibration(x, y, z, samples, centerX, centerY, centerZ, radX, radY, radZ, 100, 0.001, inliers);
 
-    *scaleX = 1.0f / sqrt(eig1);
-    *scaleY = 1.0f / sqrt(eig2);
-    *scaleZ = 1.0f / sqrt(eig3);
+        calibData.magOffset[0] = centerX/calibData.magScale[0] + calibData.magOffset[0];
+        calibData.magOffset[1] = centerY/calibData.magScale[1] + calibData.magOffset[1];
+        calibData.magOffset[2] = centerZ/calibData.magScale[2] + calibData.magOffset[2];
+    
+        calibData.magScale[0] *= 1.0f/radX;
+        calibData.magScale[1] *= 1.0f/radY;
+        calibData.magScale[2] *= 1.0f/radZ;        
+
+        logStream->printf("Geometric center: %f %f %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
+        logStream->printf("Geometric radius: %f %f %f\n", 1/calibData.magScale[0], 1/calibData.magScale[1], 1/calibData.magScale[2]);
+    }
+    
+    delete[] x;
+    delete[] y;
+    delete[] z;
+    if (inliers) delete[] inliers;
+
+    
+    logStream->println("Magnetometer calibration completed");
+    logStream->printf("Offset: [%f, %f, %f]\n", 
+                  calibData.magOffset[0], 
+                  calibData.magOffset[1], 
+                  calibData.magOffset[2]);
+    logStream->printf("Scale: [%f, %f, %f]\n", 
+                  calibData.magScale[0], 
+                  calibData.magScale[1], 
+                  calibData.magScale[2]);
 }
+
+void IMUSensor_GY87::calibrateCompass() {
+    initialCalibrateMagnetometer(true, false);
+    saveCalibrationData();
+}
+
+
 
 //-----------------------------------------------------------------------------
 // Работа с данными датчиков

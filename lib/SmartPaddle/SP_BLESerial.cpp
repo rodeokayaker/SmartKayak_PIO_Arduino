@@ -13,6 +13,46 @@ namespace SPSerialUUID {
     const char* TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 }
 
+namespace SP_BLESerial_Commands {
+    const char* CALIBRATE_COMPASS = "calibrate_compass";
+    const char* CALIBRATE_LOADS = "calibrate_loads";
+    const char* CALIBRATE_IMU = "calibrate_imu";
+    const char* BLADE_SIDE_PARAM = "blade_side";
+    const char* SEND_SPECS = "send_specs";
+    const char* START_PAIR = "start_pair";
+    const char* SHUTDOWN = "shutdown";
+    const char* TARE_LOADS = "tare_loads";
+    const char* CALIBRATE_BLADE_ANGLE = "calibrate_blade_angle";
+}
+
+namespace SP_BLESerial_Data {
+    const char* SPECS = "specs";
+    const char* STATUS = "status";
+    const char* BLADE_ORIENTATION = "blade_orientation";
+    namespace SPECS_DATA {
+        const char* PADDLE_ID = "paddleID";
+        const char* PADDLE_TYPE = "paddleType";
+        const char* PADDLE_MODEL = "paddleModel";
+        const char* BLADE_POWER = "bladePower";
+        const char* LENGTH = "length";
+        const char* IMU_FREQUENCY = "imuFrequency";
+        const char* HAS_LEFT_BLADE = "hasLeftBlade";
+        const char* HAS_RIGHT_BLADE = "hasRightBlade";
+        const char* FIRMWARE_VERSION = "firmwareVersion";
+    }
+    namespace BLADE_ORIENTATION_DATA {
+        const char* Y_AXIS_DIRECTION = "yAxisDirection";
+        const char* RIGHT_BLADE_ANGLE = "rightBladeAngle";
+        const char* LEFT_BLADE_ANGLE = "leftBladeAngle";
+        const char* RIGHT_BLADE_VECTOR_X = "rightBladeVectorX";
+        const char* RIGHT_BLADE_VECTOR_Y = "rightBladeVectorY";
+        const char* RIGHT_BLADE_VECTOR_Z = "rightBladeVectorZ";
+        const char* LEFT_BLADE_VECTOR_X = "leftBladeVectorX";
+        const char* LEFT_BLADE_VECTOR_Y = "leftBladeVectorY";
+        const char* LEFT_BLADE_VECTOR_Z = "leftBladeVectorZ";
+    }
+}
+
 SP_BLESerial::SP_BLESerial(SmartPaddle* p) : 
     paddle(p),
     messageHandler(nullptr),
@@ -74,7 +114,7 @@ size_t SP_BLESerial::write(const uint8_t* buffer, size_t bufferSize){
     {
         written += this->write(buffer[i]);
     }
-    flush();
+//    flush();
     return written;
 }
 
@@ -96,6 +136,7 @@ void SP_BLESerial::sendJson(MessageType type, const JsonDocument& doc) {
 
     flush();
     println(jsonBuffer);
+    flush();
 }
 
 bool SP_BLESerial::updateJSON(bool printOther) 
@@ -181,6 +222,14 @@ void SP_BLESerial::sendCommand(const char* command, JsonObject* params) {
     jsonDoc["data"]["cmd"] = command;
     if(params) jsonDoc["data"]["params"] = *params;
     sendJson(MessageType::COMMAND, jsonDoc);
+}
+
+void SP_BLESerial::sendData(const char* dataType, JsonObject* value) {
+    jsonDoc.clear();
+    jsonDoc["type"] = "data";
+    jsonDoc["data"]["dataType"] = dataType;
+    jsonDoc["data"]["value"] = *value;
+    sendJson(MessageType::DATA, jsonDoc);
 }
 
 void SP_BLESerial::sendResponse(const char* command, bool success, const char* message) {

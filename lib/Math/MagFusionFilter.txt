@@ -1,0 +1,182 @@
+
+class MagFusionFilter {
+public:
+    struct Config {
+        float alpha = 0.98f;              // Базовый коэффициент фильтра
+        float mag_trust_threshold = 0.2f;  // Минимальный порог доверия магнитометру
+        float magnetic_declination = 0.0f; // Магнитное склонение (в радианах)
+        int buffer_size = 50;             // Размер буфера для обнаружения помех
+        float disturbance_threshold = 0.1f;// Порог определения магнитных помех
+    };
+
+    MagFusionFilter(const Config& config);
+    
+    // Основной метод фильтрации
+    SP_Math::Quaternion update(
+        const SP_Math::Quaternion& dmp_quaternion,
+        const SP_Math::Vector& mag_reading,
+        const SP_Math::Vector& gyro
+    );
+
+    // Настройка параметров
+    void setMagneticDeclination(float declination);
+    void setConfig(const Config& config);
+    
+    // Получение информации о состоянии
+    float getMagneticDisturbance() const;
+    float getMagTrustFactor() const;
+
+private:
+    Config config;
+    SP_Math::Quaternion last_orientation;
+    std::vector<SP_Math::Vector> mag_buffer;
+    float current_disturbance = 0.0f;
+    float current_trust_factor = 1.0f;
+
+    // Методы анализа магнитного поля
+    void updateMagneticBuffer(const SP_Math::Vector& mag);
+    float calculateDisturbance() const;
+    float calculateTrustFactor(const SP_Math::Vector& mag_local) const;
+    bool detectMagneticAnomaly(const SP_Math::Vector& mag) const;
+};
+
+
+MagFusionFilter::MagFusionFilter(const Config& config) 
+    : config(config), mag_buffer(config.buffer_size) {
+}
+
+SP_Math::Quaternion MagFusionFilter::update(
+    const SP_Math::Quaternion& dmp_quaternion,
+    const SP_Math::Vector& mag_reading,
+    const SP_Math::Vector& gyro
+) {
+    // Нормализуем показания магнитометра
+    SP_Math::Vector mag_normalized = mag_reading.normalize();
+    
+    // Обновляем буфер и анализируем помехи
+    updateMagneticBuffer(mag_normalized);
+    current_disturbance = calculateDisturbance();
+    
+    // Проверяем на магнитные аномалии
+    if (detectMagneticAnomaly(mag_normalized)) {
+        last_orientation = dmp_quaternion;
+        return dmp_quaternion;
+    }
+
+    // Получаем направление на магнитный север в локальной системе координат
+    SP_Math::Vector mag_local = dmp_quaternion.conjugate().rotate(mag_normalized);
+    mag_local.y() = 0;  // Проецируем на горизонтальную плоскость
+    mag_local = mag_local.normalize();
+    
+    // Вычисляем фактор доверия к магнитометру
+    current_trust_factor = calculateTrustFactor(mag_local);
+    
+    if (current_trust_factor < config.mag_trust_threshold) {
+        last_orientation = dmp_quaternion;
+        return dmp_quaternion;
+    }
+
+    // Вычисляем угол коррекции с учетом магнитного склонения
+    float yaw_correction = std::atan2(mag_local.x(), mag_local.z()) + config.magnetic_declination;
+    
+    // Создаем кватернион коррекции
+    SP_Math::Quaternion mag_correction;
+    mag_correction.fromAxisAngle(
+        SP_Math::Vector(0.0f, 1.0f, 0.0f),
+        yaw_correction
+    );
+
+    // Адаптивный коэффициент фильтра
+    float adaptive_alpha = config.alpha;
+    
+    // Увеличиваем доверие к DMP при быстром движении
+    float gyro_magnitude = gyro.length();
+    adaptive_alpha = std::min(0.99f, adaptive_alpha + gyro_magnitude * 0.01f);
+    
+    // Уменьшаем влияние магнитометра при наличии помех
+    adaptive_alpha = std::min(0.99f, adaptive_alpha + current_disturbance);
+
+    // Комплементарный фильтр
+    SP_Math::Quaternion result = dmp_quaternion.slerp(
+        dmp_quaternion * mag_correction,
+        (1.0f - adaptive_alpha) * current_trust_factor
+    );
+
+    last_orientation = result;
+    return result;
+}
+
+void MagFusionFilter::updateMagneticBuffer(const SP_Math::Vector& mag) {
+    static size_t buffer_index = 0;
+    mag_buffer[buffer_index] = mag;
+    buffer_index = (buffer_index + 1) % config.buffer_size;
+}
+
+float MagFusionFilter::calculateDisturbance() const {
+    SP_Math::Vector mean_mag(0.0f, 0.0f, 0.0f);
+    
+    // Вычисляем среднее значение
+    for (const auto& mag : mag_buffer) {
+        mean_mag += mag;
+    }
+    mean_mag = mean_mag / static_cast<float>(config.buffer_size);
+    
+    // Вычисляем среднеквадратичное отклонение
+    float variance = 0.0f;
+    for (const auto& mag : mag_buffer) {
+        variance += (mag - mean_mag).lengthSquared();
+    }
+    variance /= config.buffer_size;
+    
+    return std::sqrt(variance);
+}
+
+float MagFusionFilter::calculateTrustFactor(const SP_Math::Vector& mag_local) const {
+    // Проверяем отклонение от горизонтальной плоскости
+    float vertical_error = std::abs(mag_local.y());
+    
+    // Проверяем стабильность величины магнитного поля
+    float magnitude_error = std::abs(mag_local.length() - 1.0f);
+    
+    // Комбинируем факторы
+    float trust = 1.0f - std::max(vertical_error, magnitude_error);
+    
+    // Учитываем текущий уровень помех
+    trust *= (1.0f - current_disturbance);
+    
+    return std::max(0.0f, trust);
+}
+
+bool MagFusionFilter::detectMagneticAnomaly(const SP_Math::Vector& mag) const {
+    // Проверяем резкие изменения в величине магнитного поля
+    float mag_length = mag.length();
+    if (std::abs(mag_length - 1.0f) > config.disturbance_threshold) {
+        return true;
+    }
+    
+    // Проверяем уровень помех
+    if (current_disturbance > config.disturbance_threshold) {
+        return true;
+    }
+    
+    return false;
+}
+
+void MagFusionFilter::setMagneticDeclination(float declination) {
+    config.magnetic_declination = declination;
+}
+
+void MagFusionFilter::setConfig(const Config& new_config) {
+    config = new_config;
+    mag_buffer.resize(config.buffer_size);
+}
+
+float MagFusionFilter::getMagneticDisturbance() const {
+    return current_disturbance;
+}
+
+float MagFusionFilter::getMagTrustFactor() const {
+    return current_trust_factor;
+}
+
+} // namespace SP_Filters

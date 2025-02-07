@@ -1,0 +1,123 @@
+#include <Eigen/Dense>
+using Eigen::Matrix;
+using Eigen::Vector3f;
+
+class MagnetometerKalmanCalibrator {
+private:
+    // Состояние: [offset_x, offset_y, offset_z, scale_x, scale_y, scale_z, temp_coef_x, temp_coef_y, temp_coef_z]
+    static const int STATE_SIZE = 9;
+    Matrix<float, STATE_SIZE, 1> x;
+    Matrix<float, STATE_SIZE, STATE_SIZE> P;
+    Matrix<float, STATE_SIZE, STATE_SIZE> Q;
+    Matrix<float, 3, 3> R;  // Теперь 3x3 для векторных измерений
+
+    // Параметры адаптации
+    float innovation_coeff = 0.01f;  // Коэффициент для адаптации R
+    float process_noise_coeff = 0.001f;  // Коэффициент для адаптации Q
+    
+    // Буфер для оценки инноваций
+    static const int INNOVATION_BUFFER_SIZE = 50;
+    Matrix<float, 3, INNOVATION_BUFFER_SIZE> innovation_buffer;
+    int buffer_index = 0;
+
+public:
+    MagnetometerKalmanCalibrator() {
+        x.setZero();
+        x.segment<3>(3).setConstant(1.0f);  // Начальные масштабные коэффициенты = 1
+        
+        P.setIdentity() * 1000.0f;
+        Q.setIdentity() * 0.0001f;
+        R.setIdentity() * 0.1f;
+        
+        innovation_buffer.setZero();
+    }
+
+    void adaptCovariances(const Vector3f& innovation) {
+        // Сохраняем инновацию в буфер
+        innovation_buffer.col(buffer_index) = innovation;
+        buffer_index = (buffer_index + 1) % INNOVATION_BUFFER_SIZE;
+
+        if(buffer_index == 0) {  // Буфер заполнен
+            // Оцениваем ковариацию инноваций
+            Matrix<float, 3, 3> innovation_cov = Matrix<float, 3, 3>::Zero();
+            for(int i = 0; i < INNOVATION_BUFFER_SIZE; i++) {
+                innovation_cov += innovation_buffer.col(i) * innovation_buffer.col(i).transpose();
+            }
+            innovation_cov /= INNOVATION_BUFFER_SIZE;
+
+            // Адаптируем R
+            R = (1 - innovation_coeff) * R + innovation_coeff * innovation_cov;
+
+            // Адаптируем Q на основе размера инноваций
+            float innovation_norm = innovation_cov.norm();
+            Q = Q * (1 + process_noise_coeff * innovation_norm);
+        }
+    }
+
+    void update(const Vector3f& raw_mag, float temperature, 
+                const Vector3f& gyro, const Vector3f& accel) {
+        // Предсказание с учетом гироскопа
+        // Если есть быстрое вращение, увеличиваем неопределенность
+        float gyro_norm = gyro.norm();
+        if(gyro_norm > 1.0f) {
+            Q.diagonal().segment<3>(0) *= (1.0f + gyro_norm * 0.1f);
+        }
+
+        // Учитываем ускорение (если есть сильное движение, меньше доверяем измерениям)
+        float accel_norm = (accel.norm() - 9.81f);  // Отклонение от g
+        if(std::abs(accel_norm) > 0.5f) {
+            R *= (1.0f + std::abs(accel_norm) * 0.2f);
+        }
+
+        P = P + Q;
+
+        // Применяем текущую калибровку с учетом температуры
+        Vector3f temp_correction = x.segment<3>(6) * temperature;
+        Vector3f calibrated_mag;
+        for(int i = 0; i < 3; i++) {
+            calibrated_mag(i) = (raw_mag(i) - x(i) - temp_correction(i)) * x(i+3);
+        }
+
+        // Измерения: 
+        // 1. Отклонение от единичной нормы
+        // 2. Ортогональность к вектору гравитации (если датчик неподвижен)
+        // 3. Согласованность с предыдущими измерениями
+        Vector3f z;
+        z(0) = calibrated_mag.norm() - 1.0f;
+        z(1) = calibrated_mag.dot(accel.normalized());  // Должно быть близко к 0
+        z(2) = 0;  // Можно добавить другие условия
+
+        // Якобиан измерения (нужно расширить)
+        Matrix<float, 3, STATE_SIZE> H;
+        // ... вычисление якобиана ...
+
+        // Инновация
+        Vector3f innovation = z - H * x;
+        
+        // Адаптация ковариационных матриц
+        adaptCovariances(innovation);
+
+        // Коэффициент усиления Калмана
+        auto K = P * H.transpose() * (H * P * H.transpose() + R).inverse();
+
+        // Коррекция
+        x = x + K * innovation;
+        P = (Matrix<float, STATE_SIZE, STATE_SIZE>::Identity() - K * H) * P;
+
+        // Ограничения на параметры
+        constrainParameters();
+    }
+
+private:
+    void constrainParameters() {
+        // Ограничения на масштабные коэффициенты
+        for(int i = 3; i < 6; i++) {
+            x(i) = std::clamp(x(i), 0.5f, 2.0f);
+        }
+        
+        // Ограничения на температурные коэффициенты
+        for(int i = 6; i < 9; i++) {
+            x(i) = std::clamp(x(i), -0.01f, 0.01f);
+        }
+    }
+};

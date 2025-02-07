@@ -114,6 +114,7 @@ void LEDDriver::ledTask(void* parameter) {
 }
 
 void LEDDriver::timerCallback(TimerHandle_t timer) {
+    if (timer == nullptr) return;
     LEDDriver* led = static_cast<LEDDriver*>(pvTimerGetTimerID(timer));
     // Отправляем уведомление задаче
     if(led->ledTaskHandle != nullptr) {
