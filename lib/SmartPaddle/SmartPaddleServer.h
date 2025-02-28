@@ -4,6 +4,12 @@
 #include <SmartPaddle.h>
 #include <LogInterface.h>
 
+#define HX711_SET_INTERRUPT
+#define HX711_RESET_FREQUENCY 60000
+#define RESET_UP_CHECK
+#define HX711_USE_INTERRUPT
+
+
 namespace SPServer_Default_Frequencies {
     const uint16_t BLE_SEND_FREQUENCY = 10;
     const uint16_t BLE_RECEIVE_FREQUENCY = 10;
@@ -12,7 +18,7 @@ namespace SPServer_Default_Frequencies {
 
 class SmartPaddleBLEServer : public SmartPaddle {
     friend class SPBLEServerCallbacks;
-    friend class SerialServer_MessageHandler;
+    friend class SPServer_MessageHandler;
     friend class SPServerRTOS;
 private:
 
@@ -20,6 +26,7 @@ private:
     IIMU* imu;
     ILoadCell* loads[2];
     uint16_t FilterFrequency;
+    loadData lastLoadData;
 
 //Preferences
     std::string prefsName;
@@ -80,8 +87,8 @@ private:
     void startAdvertising(BLEAdvertising* advertising);
     bool connect();                   // Connect to paddle
 
-    void updateIMU();
-    void updateLoads();
+    bool updateIMU();
+    bool updateLoads();
     void updateBLE();    
 
     TimerHandle_t connectTimer;
@@ -94,7 +101,7 @@ public:
     
 
     void begin(const char* deviceName);
-    void setPaddleID(uint32_t id){specs.PaddleID=id;}
+    void setPaddleID(uint32_t id){specs.paddleID=id;}
     void setPaddleType(PaddleType type){specs.paddleType=type;}    
     void setFilterFrequency(uint32_t frequency){FilterFrequency=frequency;}
 

@@ -15,6 +15,8 @@
 
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
+#include "LCD_HD44780_Display.h"
+#include "ChinaMotor.h"
 
 #define INCLUDE_vTaskDelayUntil 1
 
@@ -62,8 +64,11 @@
 #define LCD2_ROWS 2
 
 // Создаем объекты дисплеев
-hd44780_I2Cexp lcd1(LCD_ADDRESS);
-hd44780_I2Cexp lcd2(LCD2_ADDRESS);
+hd44780_I2Cexp* lcd1=new hd44780_I2Cexp(LCD_ADDRESS);
+hd44780_I2Cexp* lcd2=nullptr;//new hd44780_I2Cexp(LCD2_ADDRESS);
+
+// Текущее значение
+volatile int currentForce = 1500;
 
 // define initial power state, mode and force threshold
 const int FORCE_THRESHOLD = 20; // минимальный уровень чувствительности тензодатчиков
@@ -104,13 +109,15 @@ private:
     LEDDriver blueLED;
     LEDDriver redLED;
     MotorPowerMode currentMode;
+    bool MotorDebugMode;
 public:
     PowerButton(int pin) : 
         ButtonDriver(pin), 
         currentMode(MOTOR_OFF), 
         greenLED(LOW_LED_PIN), 
         blueLED(MED_LED_PIN), 
-        redLED(HIGH_LED_PIN) {}
+        redLED(HIGH_LED_PIN),
+        MotorDebugMode(false) {}
 
     void begin(){
         ButtonDriver::begin();
@@ -125,14 +132,79 @@ public:
         }
 
     }
+
+    bool debugMotorChandeForce(int increment){
+        bool changed = false;
+        int newForce = currentForce + increment;
+        
+        // Проверка границ
+        if (newForce >= 1000 && newForce <= 2000) {
+            currentForce = newForce;
+            changed=true;
+        }
+        if (lcd1) {
+            lcd1->setCursor(0, 0);
+            lcd1->print("Motor Debug Mode    ");
+        }
+        
+        if (lcd1) {
+            lcd1->setCursor(0, 1);
+            char buf[21];
+            snprintf(buf, sizeof(buf), "Force: %4d         ", currentForce);
+            lcd1->print(buf);
+        }
+        
+        // Обновление светодиодов
+        if (currentForce == 1500) {
+            greenLED.off();
+            blueLED.on();
+            redLED.off();
+        } else if (currentForce < 1500) {
+            greenLED.on();
+            blueLED.off();
+            redLED.off();
+        } else {
+            greenLED.off();
+            blueLED.off();
+            redLED.on();
+        }
+        return changed;
+    }
+
+
     void onPress() override{};
     void onRelease() override;
-    void onLongPress() override {}
+    void onLongPress() override {
+        MotorDebugMode = !MotorDebugMode;
+        if (lcd1) {
+            lcd1->clear();
+        }
+        if (MotorDebugMode) {
+            currentForce = 1500;
+            debugMotorChandeForce(0);
+        } else {
+            switch(currentMode) {
+                case 3: greenLED.off(); blueLED.off(); redLED.on(); break;
+                case 2: greenLED.off(); blueLED.on(); redLED.off(); break;
+                case 1: greenLED.on(); blueLED.off(); redLED.off(); break;
+                case 0: greenLED.off(); blueLED.off(); redLED.off(); break;
+            }
+        }
+    }
     MotorPowerMode getMode() { return currentMode; }
+    bool getMotorDebugMode() { return MotorDebugMode; }
+    
 };
 
 
 void PowerButton::onRelease() {
+    if (isLongPressed()) {
+        return;
+    }
+    if (MotorDebugMode) {
+        debugMotorChandeForce(50);
+        return;
+    }
     currentMode = (MotorPowerMode)((((int)currentMode+1) % 4));
     switch(currentMode) {
         case 3: greenLED.off(); blueLED.off(); redLED.on(); break;
@@ -144,64 +216,10 @@ void PowerButton::onRelease() {
 
 
 
-class ChinaMotor: public IMotorDriver {
-
-    int currentForce;
-    Servo servo;
-    int motor_pin;
-    uint32_t motor_idle_start_time;
-
-    public:
-    ChinaMotor(int pin): currentForce(0), motor_pin(pin), motor_idle_start_time(0) {}
-
-    void begin() override {
-  
-        // Initialize and arm the MOTOR
-        servo.attach(motor_pin);
-        servo.writeMicroseconds(1500); // send "stop" signal to ESC. Also necessary to arm the ESC.
-        delay(5000); // delay to allow the ESC to recognize the stopped signal.
-          
-        Serial.printf("ChinaMotor begin\n");
-    }
-
-    void setForce(int speed) override {
-        if (speed == 0 && currentForce == 0) {
-            return;
-        }
-        if ((currentForce >0 && speed<0) || (currentForce <0 && speed>0)) {
-            // if force is changing direction, start idle time
-            //Serial.printf("Changing direction, starting idle time\n");
-            motor_idle_start_time = millis();
-            servo.writeMicroseconds(1500);
-            return;
-        }
-        if (millis() - motor_idle_start_time < 1000) {
-            // keep motor idle for 1 second
-            servo.writeMicroseconds(1500);
-            return;
-        }
-        currentForce = speed;
-//        Serial.printf("ChinaMotor setForce: %d\n", speed);
-        int PWM1_DutyCycle = map(speed, -1000, 1000, 1000, 2000);
-        if (PWM1_DutyCycle < 1000) {
-            PWM1_DutyCycle = 1000;
-        }
-        if (PWM1_DutyCycle > 2000) {
-            PWM1_DutyCycle = 2000;
-        }
-        servo.writeMicroseconds(PWM1_DutyCycle);
-    }
-
-    int getForce() override {
-        return currentForce;
-    }
-};
 
 
 // Глобальные объекты
-//ADXL345 accel;
-//ITG3200 gyro;
-//MechaQMC5883 qmc;
+
 SmartPaddleBLEClient paddle("Paddle_1");
 IMUSensor_GY87 imu("imu_gy87", true, IMU_INTERRUPT_PIN);
 SmartKayak kayak;
@@ -223,6 +241,11 @@ class Button1: public ButtonDriver {
     }
     void onRelease() override {
         if (isLongPressed()) {
+            return;
+        }
+
+        if (powerButton.getMotorDebugMode()) {
+            powerButton.debugMotorChandeForce(-50);
             return;
         }
 
@@ -272,9 +295,11 @@ void processDataTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/PROCESS_FREQUENCY);
     
     while(1) {
-//        paddle.updateLoads();
-//        paddle.updateIMU();
-        kayak.update();
+        if (powerButton.getMotorDebugMode()) {
+            motor.runRaw(currentForce);
+        } else {
+            kayak.update();
+        }
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
@@ -437,7 +462,7 @@ void processCommand(const char* cmd) {
         }
         
         PaddleSpecs specs = paddle.getSpecs();
-        Serial.printf("Paddle ID: %s\n", specs.PaddleID);
+        Serial.printf("Paddle ID: %s\n", specs.paddleID);
         Serial.printf("Blade type: %s\n", 
                      specs.paddleType == TWO_BLADES ? "Double" : "Single");
         imu.PrintChipsInfo();
@@ -478,10 +503,10 @@ void processCommand(const char* cmd) {
         paddle.calibrateLoads(RIGHT_BLADE);
     }
     else if(strcmp(cmd, CMD_PADDLE_PAIR) == 0) {
-        paddle.getSerial()->sendCommand(SP_BLESerial_Commands::START_PAIR);
+        paddle.getSerial()->sendString(SP_MessageProcessor::createStartPairCommand());
     }
     else if(strcmp(cmd, CMD_PADDLE_SHUTDOWN) == 0) {
-        paddle.getSerial()->sendCommand(SP_BLESerial_Commands::SHUTDOWN);
+        paddle.getSerial()->sendString(SP_MessageProcessor::createShutdownCommand());
     }
     else if(strcmp(cmd, CMD_PADDLE_SD_START) == 0) {
         SDlog.begin(filename.c_str());
@@ -499,12 +524,12 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_PADDLE_SEND_SPECS) == 0) {
         if (paddle.getSerial()) {
-            paddle.getSerial()->sendCommand(SP_BLESerial_Commands::SEND_SPECS);
+            paddle.getSerial()->sendString(SP_MessageProcessor::createSendSpecsCommand());
         }
     }
     else if(strcmp(cmd, CMD_PADDLE_COMPASS_CALIBRATE) == 0) {
         if (paddle.getSerial()) {
-            paddle.getSerial()->sendCommand(SP_BLESerial_Commands::CALIBRATE_COMPASS);
+            paddle.getSerial()->sendString(SP_MessageProcessor::createCalibrateCompassCommand());
         }
     }
     else if(strcmp(cmd, CMD_MAG_CALIBRATE) == 0) {
@@ -518,10 +543,7 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_PADDLE_TARE_LOADS) == 0) {
         if (paddle.getSerial()) {
-            JsonDocument doc;
-            JsonObject params=doc.to<JsonObject>();
-            params[SP_BLESerial_Commands::BLADE_SIDE_PARAM] = ALL_BLADES;
-            paddle.getSerial()->sendCommand(SP_BLESerial_Commands::TARE_LOADS, &params);    
+            paddle.getSerial()->sendString(SP_MessageProcessor::createTareLoadsCommand(ALL_BLADES));    
         }
     }
     else {
@@ -555,7 +577,7 @@ void serialCommandTask(void *pvParameters) {
     }
 }
 
-class PaddleEventHandler: public SP_Event_Handler {
+class PaddleEventHandler: public SP_EventHandler {
     private:
     float imu_freq;
     float load_freq;
@@ -574,40 +596,44 @@ class PaddleEventHandler: public SP_Event_Handler {
 //        Serial.printf("IMU Freq:  %.2f\n",imu_freq);
     }
     void onUpdateLoad(loadData& ld, SmartPaddle* paddle) override {
-        uint32_t dt = ld.timestamp - last_load_ts;
-        if (dt > 0) {
-            load_freq = 0.001 * (1000.0/dt) + 0.999 * load_freq;
-        } else {
-            Serial.printf("Load timestamp error: %d\n", dt);
-        }
         last_load_ts = ld.timestamp;
 //        Serial.printf("Load Freq:  %.2f\n",                     load_freq);
     }
     void onConnect(SmartPaddle* paddle) override {
-        lcd1.clear();
-        lcd1.setCursor(0, 0);
-        lcd1.print("Smart Kayak");
-        lcd1.setCursor(0, 2);
-        lcd1.print("Connected");
-        lcd2.clear();
-        lcd2.setCursor(0, 0);
-        lcd2.print("Smart Kayak");
-        lcd2.setCursor(0, 1);
-        lcd2.print("Connected");
+        if (lcd1) {
+            lcd1->clear();
+            lcd1->setCursor(0, 0);
+            lcd1->print("Smart Kayak");
+            lcd1->setCursor(0, 2);
+            lcd1->print("Connected");
+        }
+        if (lcd2) {
+            lcd2->clear();
+            lcd2->setCursor(0, 0);
+            lcd2->print("Smart Kayak");
+            lcd2->setCursor(0, 1);
+            lcd2->print("Connected");
+        }
     }
 
     void onDisconnect(SmartPaddle* paddle) override {
         Serial.printf("DisconnectedON\n");
-        lcd1.clear();
-        lcd1.setCursor(0, 0);
-        lcd1.print("Smart Kayak");
-        lcd1.setCursor(0, 2);
-        lcd1.print("Waiting 4 connect...");
-        lcd2.clear();
-        lcd2.setCursor(0, 0);
-        lcd2.print("Smart Kayak");
-        lcd2.setCursor(0, 1);
-        lcd2.print("Disconnected");
+        if (lcd1) {
+            lcd1->clear();
+            lcd1->setCursor(0, 0);
+            lcd1->print("Smart Kayak ver 0.1b");
+            lcd1->setCursor(0, 2);
+            lcd1->print("Waiting for");
+            lcd1->setCursor(0, 3);
+            lcd1->print("connection...");
+        }
+        if (lcd2) {
+            lcd2->clear();
+            lcd2->setCursor(0, 0);
+            lcd2->print("Smart Kayak");
+            lcd2->setCursor(0, 1);
+            lcd2->print("Disconnected");
+        }
     }
 };
 
@@ -622,32 +648,44 @@ void setup() {
     // Инициализация дисплеев
     int status;
     
+    if (lcd1) {
     // Инициализация первого дисплея
-    status = lcd1.begin(LCD_COLUMNS, LCD_ROWS);
-    if(status) {
-        Serial.print("LCD 1 initialization failed: ");
-        Serial.println(status);
-    }
-    
-    // Инициализация второго дисплея
-    status = lcd2.begin(LCD2_COLUMNS, LCD2_ROWS, LCD2_ADDRESS);
-    if(status) {
-        Serial.print("LCD 2 initialization failed: ");
-        Serial.println(status);
+        status = lcd1->begin(LCD_COLUMNS, LCD_ROWS);
+        if(status) {
+            Serial.print("LCD 1 initialization failed: ");
+            Serial.println(status);
+        }
     }
 
-    lcd1.clear();
-    lcd1.setCursor(0, 0);
-    lcd1.print("Smart Kayak");
-    lcd2.clear();
-    lcd2.setCursor(0, 0);
-    lcd2.print("Smart Kayak");
-    lcd1.setCursor(0, 2);
-    lcd1.print("Loading...");
+    // Инициализация второго дисплея
+    if (lcd2) {
+        status = lcd2->begin(LCD2_COLUMNS, LCD2_ROWS, LCD2_ADDRESS);
+        if(status) {
+            Serial.print("LCD 2 initialization failed: ");
+            Serial.println(status);
+        }
+    }
+
+    if (lcd1) {
+        lcd1->clear();
+        lcd1->setCursor(0, 0);
+        lcd1->print("Smart Kayak ver 0.1b");
+    }
+    if (lcd2) {
+        lcd2->clear();
+        lcd2->setCursor(0, 0);
+        lcd2->print("Smart Kayak");
+    }
+    if (lcd1) {
+        lcd1->setCursor(0, 2);
+        lcd1->print("Loading...");
+    }
     
     delay(1000);
-    lcd1.setCursor(0, 3);
-    lcd1.print("motor");
+    if (lcd1) {
+        lcd1->setCursor(0, 3);
+        lcd1->print("motor");
+    }
     motor.begin();
 
     Wire.begin(I2C_SDA, I2C_SCL);
@@ -655,8 +693,10 @@ void setup() {
     SDCardReady = SDlog.begin(filename.c_str());
     SDlog.clearFile();
 
-    lcd1.setCursor(0, 3);
-    lcd1.print("paddle");   
+    if (lcd1) {
+        lcd1->setCursor(0, 3);
+        lcd1->print("paddle");   
+    }
     Serial.println("\nKayak Smart System Initializing...");
 
     // Инициализация BLE клиента
@@ -668,7 +708,9 @@ void setup() {
 
 //    imu.setAutoCalibrateMag(true);
     kayak.setPaddle(&paddle);
-    kayak.setTextLCD(&lcd1, &lcd2);
+    kayak.setTextLCD(lcd1, lcd2);
+    DualLCDDisplay dualDisplay(lcd1, lcd2);
+    kayak.setDisplay(&dualDisplay);
     kayak.setIMU(&imu, IMU_FREQUENCY);
     kayak.setModeSwitch(&powerButton);
     kayak.setMotorDriver(&motor);
@@ -733,10 +775,12 @@ void setup() {
     Serial.println("Kayak Smart System Ready!");
     Serial.println("Type 'help' for available commands");
     Serial.print("Smart Kayak > ");
-    lcd1.setCursor(0, 2);
-    lcd1.print("Waiting for");
-    lcd1.setCursor(0, 3);
-    lcd1.print("connection...");
+    if (lcd1) {
+        lcd1->setCursor(0, 2);
+        lcd1->print("Waiting for");
+        lcd1->setCursor(0, 3);
+        lcd1->print("connection...");
+    }
 }
 
 void loop() {

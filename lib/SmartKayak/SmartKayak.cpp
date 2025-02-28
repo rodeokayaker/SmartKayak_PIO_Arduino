@@ -2,8 +2,8 @@
 #include "InterfaceIMU.h"
 #include "Arduino.h"
 #include "SP_Quaternion.h"
-#define POWER_LOW_SCALE 20
-#define POWER_MEDIUM_SCALE 30
+#define POWER_LOW_SCALE 10
+#define POWER_MEDIUM_SCALE 25
 #define POWER_HIGH_SCALE 40
 
 
@@ -20,8 +20,6 @@ textLCD2(nullptr)
 }
 
 void SmartKayak::begin() {
-    leftTare={0,0,0};
-    rightTare={0,0,0};
     log_level = 0;
     lastPrintLCD1 = millis();
     lastPrintLCD2 = millis();
@@ -108,7 +106,7 @@ void SmartKayak::update() {
 
 
     int force = 0;
-    int borderLoadForce = 3000;
+    int borderLoadForce = 400;
 
     loadData loads = paddle->getLoadData();
     IMUData imuData = paddle->getIMUData();
@@ -128,44 +126,23 @@ void SmartKayak::update() {
         return; 
     }
 
-    //get the force of the lower blade
-    float bladeForce = bladeSide == BladeSideType::RIGHT_BLADE ? loads.forceR : loads.forceL;
+    // Обновляем калибровку с учетом IMU
+    loadCellCalibrator.updateTare(
+        (bladeSide == BladeSideType::RIGHT_BLADE),
+        loads.forceL,
+        loads.forceR,
+        imuData,
+        paddle->getBladeAngles()
+    );
     
-
-
-    if (bladeSide == BladeSideType::RIGHT_BLADE) {
-        if (rightTare.samples> 100) {
-            //changed blade
-            double avg = rightTare.sum/rightTare.samples;
-            rightTare.average = rightTare.average*0.5+avg*0.5;
-//            Serial.printf("Right tare average: %f\n", rightTare.average);
-            rightTare.samples = 0;
-            rightTare.sum = 0;
-        }
-        leftTare.samples++;
-        leftTare.sum+=loads.forceL;
-    } else {
-        if (leftTare.samples> 100) {
-            //changed blade
-            double avg = leftTare.sum/leftTare.samples;
-            leftTare.average = leftTare.average*0.8+avg*0.2;
-            
-//            Serial.printf("Left tare average: %f\n", leftTare.average);
-            leftTare.samples = 0;
-            leftTare.sum = 0;
-        }
-        rightTare.samples++;
-        rightTare.sum += loads.forceR;
-    }
-
-    float tareForce = (bladeSide == BladeSideType::RIGHT_BLADE) ? rightTare.average : leftTare.average;
-
-
-
-    bladeForce = bladeForce - tareForce;
-
-//    Serial.printf("Blade force: %f\n", bladeForce);
- 
+    // Получаем откалиброванное значение силы с учетом гравитации
+    float bladeForce = loadCellCalibrator.getCalibratedForce(
+        (bladeSide == BladeSideType::RIGHT_BLADE),
+        (bladeSide == BladeSideType::RIGHT_BLADE) ? loads.forceR : loads.forceL,
+        imuData,
+        paddle->getBladeAngles()
+    );
+    
 
 
     imuData = imu->getData();
@@ -234,21 +211,23 @@ void SmartKayak::update() {
         Serial.printf("Force: %d\n",force);
     }
 
+    bool printLCD1 = false;
     if (textLCD1 && (millis() - lastPrintLCD1 > 100)) {
         lastPrintLCD1 = millis();
+        printLCD1 = true;
         textLCD1->setCursor(0, 0);
         char buf[22];
-        snprintf(buf, sizeof(buf), "%6d  TARE  %6d", (int)(leftTare.average), (int)(rightTare.average));
+        snprintf(buf, sizeof(buf), "%6d  TARE  %6d", (int)(loadCellCalibrator.getLeftTare()), (int)(loadCellCalibrator.getRightTare()));
         textLCD1->print(buf);
-        snprintf(buf, sizeof(buf), "%6d  LOAD  %6d", (int)((loads.forceL-leftTare.average)), (int)((loads.forceR-rightTare.average)));
+        snprintf(buf, sizeof(buf), "%6d  LOAD  %6d", (int)((loads.forceL-loadCellCalibrator.getLeftTare())), (int)((loads.forceR-loadCellCalibrator.getRightTare())));
         textLCD1->setCursor(0, 1);
         textLCD1->print(buf);
         float cosL = paddleCalibQuaternion.conjugate().rotate(currentKayakQ.conjugate().rotate(currentPaddleQ.rotate(paddle->getBladeAngles().leftBladeVector))).normalize().x();
         float cosR = paddleCalibQuaternion.conjugate().rotate(currentKayakQ.conjugate().rotate(currentPaddleQ.rotate(paddle->getBladeAngles().rightBladeVector))).normalize().x();
-        snprintf(buf, sizeof(buf), "%6.3f  PROJ  %6.3f", cosL,cosR);
+        snprintf(buf, sizeof(buf), "%6.3f %sPR%s %6.3f", cosL, (bladeSide == BladeSideType::RIGHT_BLADE) ? "  " : "<-", (bladeSide == BladeSideType::RIGHT_BLADE) ? "->" : "  ", cosR);
         textLCD1->setCursor(0, 2);
         textLCD1->print(buf);
-        snprintf(buf, sizeof(buf), "Force: %6d", force);
+        snprintf(buf, sizeof(buf), "%6d Force ", force);
         textLCD1->setCursor(0, 3);
         textLCD1->print(buf);
     }
@@ -260,17 +239,37 @@ void SmartKayak::update() {
         }
         return; 
     }
-    //if the force is too low, stop the motor
+
     if ((bladeForce < borderLoadForce) && (bladeForce > -borderLoadForce)) {
-        if (motorDriver->getForce() != 0) {
-            motorDriver->stop();
-        }
-        return; 
+        force = 0;
     }
 
 
     motorDriver->setForce(force);
 
+    if (textLCD1 && printLCD1) {
+        textLCD1->setCursor(14, 3);
+        char buf[22];
+        snprintf(buf, sizeof(buf), "%6d", motorDriver->getForce());
+        textLCD1->print(buf);
+    }
+
+    // Обновляем данные для отображения
+    displayData.shaftRotationAngle = shaftRotationAngle;
+    displayData.shaftTiltAngle = shaftTiltAngle;
+    displayData.bladeRotationAngle = bladeRotationAngle;
+    displayData.leftForce = loads.forceL;
+    displayData.rightForce = loads.forceR;
+    displayData.leftTare = loadCellCalibrator.getLeftTare();
+    displayData.rightTare = loadCellCalibrator.getRightTare();
+    displayData.isRightBlade = (bladeSide == BladeSideType::RIGHT_BLADE);
+    displayData.leftBladeAngle = paddle->getBladeAngles().leftBladeAngle;
+    displayData.rightBladeAngle = paddle->getBladeAngles().rightBladeAngle;
+    displayData.motorForce = motorDriver->getForce();
+    
+    if (display) {
+        display->update(displayData);
+    }
 
 }
 

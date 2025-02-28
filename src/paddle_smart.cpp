@@ -105,14 +105,23 @@ void SwitchOff(){
 
 
 class switchOffButton: public ButtonDriver {
+    uint32_t lastReleaseTime;
     public:
-    switchOffButton(int pin): ButtonDriver(pin) {}
+    switchOffButton(int pin): ButtonDriver(pin), lastReleaseTime(0) {}
     void onLongPress() override {
+        if (millis()<5000) {
+            return;
+        }
+        if (millis()-lastReleaseTime<4000) {
+            Serial.println("Starting pairing mode");
+            paddle.startPairing();
+            return;
+        }
         Serial.println("Switch off button long press");
         SwitchOff();
     }
-    void onRelease() override { Serial.println("Switch off button release");}
-    void onPress() override { Serial.println("Switch off button press");}
+    void onRelease() override { lastReleaseTime=millis();}
+    void onPress() override { }
 };
 
 switchOffButton OffButton(SWITCH_OFF_PIN);
@@ -131,7 +140,7 @@ switchOffButton OffButton(SWITCH_OFF_PIN);
 #define CMD_BLE_STATUS "ble_status"
 
 // Обработчик событий для Весла
-class PaddleEventHandler: public SP_Event_Handler {
+class PaddleEventHandler: public SP_EventHandler {
     private:
     TimerHandle_t shutdownTimer;
 
@@ -177,7 +186,7 @@ PaddleEventHandler eventHandler;
 // Обработка команд
 void processCommand(const char* cmd) {
 
-    paddle.getSerial()->log(cmd);
+    paddle.getSerial()->sendString(paddle.getSerial()->Processor().createLogMessage(cmd));
     if(strcmp(cmd, CMD_CALIBRATE_LOAD) == 0) {
         paddle.setLogStream(&Serial);
         paddle.calibrateLoads(ALL_BLADES);

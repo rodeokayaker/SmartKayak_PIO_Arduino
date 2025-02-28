@@ -9,6 +9,10 @@
 #include <BLECharacteristic.h>
 #include <ArduinoJson.h>
 
+#include "SP_Message.h"
+#include "SP_MessageHandler.h"
+#include "SP_MessageProcessor.h"
+
 #define SP_SERIAL_BUFFER_SIZE 4096
 #define SP_JSON_BUFFER_SIZE 1024
 
@@ -71,26 +75,25 @@ namespace SP_BLESerial_Data {
 }
 
 // Базовый класс для обработки сообщений
-class BLESerialMessageHandler {
+/*class BLESerialMessageHandler {
 public:
     virtual void onLogMessage(const char* message) {}
     virtual void onCommand(const char* command, JsonObject& params) {}
     virtual void onResponse(const char* command, bool success, const char* message) {}
     virtual void onData(const char* dataType, JsonObject& data) {}
     virtual void onStatus(JsonObject& status) {}
-};
+};*/
 
 class SmartPaddle;
 class SP_BLESerial : public Stream {
 protected:
     SmartPaddle* paddle;
     ByteRingBuffer<SP_SERIAL_BUFFER_SIZE> receiveBuffer;
-    JsonDocument jsonDoc;
+    SP_MessageProcessor messageProcessor;
     char jsonBuffer[SP_JSON_BUFFER_SIZE];
     char jsonIncomingBuffer[SP_JSON_BUFFER_SIZE];
     int jsonIncomingBufferLength;
     int jsonIncomingBufferIndex;
-    BLESerialMessageHandler* messageHandler;
     bool started;
 
     uint8_t transmitBuffer[ESP_GATT_MAX_ATTR_LEN];
@@ -98,20 +101,16 @@ protected:
     unsigned long lastFlushTime;    
 
     // Методы для работы с JSON
-    void sendJson(MessageType type, const JsonDocument& doc);
-    virtual void processJsonMessage(char* message);
+    void sendJson(const JsonDocument& doc);
+    void sendMessage(SP_Message& message);    
 
 public:
     SP_BLESerial(SmartPaddle* p);
     virtual ~SP_BLESerial() = default;
 
-    void setMessageHandler(BLESerialMessageHandler* handler);
-
-    // Методы отправки сообщений
-    void log(const char* message);
-    void sendCommand(const char* command, JsonObject* params = nullptr);
-    void sendResponse(const char* command, bool success, const char* message);
-    void sendData(const char* dataType, JsonObject* value);
+    void setMessageHandler(SP_MessageHandler* handler);
+    SP_MessageProcessor& Processor(){ return messageProcessor; };
+    void sendString(const String& str);
 
     // Реализация Stream
     virtual int available() override;

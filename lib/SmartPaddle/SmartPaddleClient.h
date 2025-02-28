@@ -17,7 +17,7 @@ class SmartPaddleBLEClient : public SmartPaddle {
     friend class SPBLEClientCallbacks;
     friend class SPBLEClientScanCallbacks;
     friend class SPClientRTOS;
-    friend class SerialClient_MessageHandler;
+    friend class SPClient_MessageHandler;
 
 private:
     BLEClient* pClient;

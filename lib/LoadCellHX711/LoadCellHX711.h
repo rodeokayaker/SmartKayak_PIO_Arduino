@@ -20,6 +20,7 @@
 #define HX711_DEFAULT_FREQUENCY 10
 #define HX711_DEFAULT_CALIBRATION_FACTOR 1000.0f
 
+
 /**
  * @brief Структура для хранения калибровочных данных тензодатчика
  */
@@ -48,6 +49,7 @@ private:
     int32_t lastReadData;
     uint32_t lastReadTime;
     std::string prefsName;
+    bool readyToRead;
     
     // Сохранение/загрузка калибровки
     void saveCalibrationData();
@@ -65,7 +67,7 @@ public:
     bool begin(uint16_t freq=HX711_DEFAULT_FREQUENCY);
     
     // Реализация интерфейса ILoadCell
-    void read() override;
+    bool read() override;
     float getForce() override;
     int32_t getRawForce() override;
     void calibrate() override;
@@ -81,6 +83,10 @@ public:
     virtual void setLogStream(Stream* stream=&Serial) override;
     void setPins(uint8_t dout_pin, uint8_t sclk_pin) { doutPin = dout_pin; sclkPin = sclk_pin; }
     void tare() override;
+    void reset(uint32_t delay_ms=10) override;
+    bool isDataReady() override { return readyToRead&&scale.is_ready(); }
+    uint8_t getDRDYPin() override { return doutPin; }
+    
 };
 
 #endif 

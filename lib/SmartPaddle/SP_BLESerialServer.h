@@ -103,39 +103,4 @@ public:
         }
     }
 
-    // Дополнительные методы для сервера
-    void sendIMUData(const IMUData& data) {
-        jsonDoc.clear();
-        jsonDoc["type"] = "data";
-        jsonDoc["data"]["dataType"] = "imu";
-        JsonObject value = jsonDoc["data"]["value"].to<JsonObject>();
-        value["ax"] = data.ax;
-        value["ay"] = data.ay;
-        value["az"] = data.az;
-        value["gx"] = data.gx;
-        value["gy"] = data.gy;
-        value["gz"] = data.gz;
-        value["mx"] = data.mx;
-        value["my"] = data.my;
-        value["mz"] = data.mz;
-        value["q0"] = data.q0;
-        value["q1"] = data.q1;
-        value["q2"] = data.q2;
-        value["q3"] = data.q3;
-        value["ts"] = data.timestamp;
-        
-        sendJson(MessageType::DATA, jsonDoc);
-    }
-
-    void sendLoadData(const loadData& data) {
-        jsonDoc.clear();
-        jsonDoc["type"] = "data";
-        jsonDoc["data"]["dataType"] = "load";
-        JsonObject value = jsonDoc["data"]["value"].to<JsonObject>();
-        value["left"] = data.forceL;
-        value["right"] = data.forceR;
-        value["ts"] = data.timestamp;
-        
-        sendJson(MessageType::DATA, jsonDoc);
-    }
 };

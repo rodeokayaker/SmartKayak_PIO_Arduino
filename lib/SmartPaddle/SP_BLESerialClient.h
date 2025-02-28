@@ -92,49 +92,4 @@ public:
         disconnect();
         started = false;
     }
-
-    // Методы для отправки команд
-    void requestCalibration() {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "calibrate";
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
-
-    void setForceMode(int mode) {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "setmode";
-        jsonDoc["data"]["params"]["mode"] = mode;
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
-
-    void requestStatus() {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "status";
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
-
-    void setPowerMode(int mode) {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "power";
-        jsonDoc["data"]["params"]["mode"] = mode;
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
-
-    void startLogging() {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "log_start";
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
-
-    void stopLogging() {
-        jsonDoc.clear();
-        jsonDoc["type"] = "cmd";
-        jsonDoc["data"]["cmd"] = "log_stop";
-        sendJson(MessageType::COMMAND, jsonDoc);
-    }
 };

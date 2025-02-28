@@ -18,7 +18,8 @@ LoadCellHX711::LoadCellHX711(const char* prefs_Name, uint8_t dout_pin, uint8_t s
       prefsName(prefs_Name),
       doutPin(dout_pin),
       sclkPin(sclk_pin),
-      logStream(&Serial) {
+      logStream(&Serial),
+      readyToRead(false) {
     calibData.calibrationFactor = 1.0f;
     calibData.offset = 0.0f;
 }
@@ -35,7 +36,7 @@ bool LoadCellHX711::begin(uint16_t freq) {
 
     resetCalibration();
     calibValid=readCalibrationData();
-
+    readyToRead = true;
     return true;
 }
 
@@ -73,9 +74,13 @@ int32_t LoadCellHX711::getRawForce() {
     return lastReadData;
 }
 
-void LoadCellHX711::read() {
+bool LoadCellHX711::read() {
+    if(!readyToRead) {
+        return false;
+    }
     lastReadData = scale.read();
     lastReadTime = millis();
+    return true;
 }
 
 void LoadCellHX711::calibrate() {
@@ -173,4 +178,12 @@ void LoadCellHX711::tare() {
 
     logStream->println("Tare done");
     saveCalibrationData();
+}
+
+void LoadCellHX711::reset(uint32_t delay_ms) {
+    readyToRead = false;
+    scale.power_down();
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));  // неблокирующая задержка 10 мс
+    scale.power_up();
+    readyToRead = true;
 }

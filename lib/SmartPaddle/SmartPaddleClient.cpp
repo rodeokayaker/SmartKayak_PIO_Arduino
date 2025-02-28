@@ -8,89 +8,47 @@
 #define BLE_RECEIVE_STACK_SIZE 4096
 #define EVENT_STACK_SIZE 4096
 
-class SerialClient_MessageHandler: public BLESerialMessageHandler{
+class SPClient_MessageHandler: public SP_MessageHandler{
     private:
     SmartPaddleBLEClient* paddle;
 
     public:
-    SerialClient_MessageHandler(SmartPaddleBLEClient* paddle):paddle(paddle){}
+    SPClient_MessageHandler(SmartPaddleBLEClient* paddle):paddle(paddle){}
 
-    void onLogMessage(const char* message){
-        Serial.printf("Paddle log: %s\n", message);
+    virtual void onLog(SP_LogMessage* log) override{
+        Serial.printf("Paddle log: %s\n", log->message.c_str());
     }
-    void onCommand(const char* command, JsonObject& params){
-        Serial.printf("Paddle command: %s\n", command);
+    virtual void onCommand(SP_Command* command) override{
+        Serial.printf("Paddle command: %s\n", command->command.c_str());
     }
-    void onResponse(const char* command, bool success, const char* message){
-        Serial.printf("Paddle response: %s\n", command);
+    virtual void onResponse(SP_Response* response) override{
+        Serial.printf("Paddle response: %s\n", response->command.c_str());
     }
-    void onData(const char* dataType, JsonObject& data){
-        Serial.printf("Paddle data: %s\n", dataType);
-        if(strcmp(dataType, SP_BLESerial_Data::SPECS) == 0){
-            Serial.printf("Paddle specs: \n");
-            if (data[SP_BLESerial_Data::SPECS_DATA::FIRMWARE_VERSION].is<int>()) {
-                paddle->specs.firmwareVersion = data[SP_BLESerial_Data::SPECS_DATA::FIRMWARE_VERSION];
-                Serial.printf("Firmware version: %d\n", paddle->specs.firmwareVersion);
-            }
-            if (data[SP_BLESerial_Data::SPECS_DATA::PADDLE_MODEL].is<const char*>()) {
-                paddle->specs.paddleModel = (const char*)data[SP_BLESerial_Data::SPECS_DATA::PADDLE_MODEL];
-                Serial.printf("Paddle model: %s\n", paddle->specs.paddleModel);
-            }
-            if (data[SP_BLESerial_Data::SPECS_DATA::BLADE_POWER].is<int>()) {
-                paddle->specs.bladePower = data[SP_BLESerial_Data::SPECS_DATA::BLADE_POWER];
-                Serial.printf("Blade power: %d\n", paddle->specs.bladePower);
-            }
-            if (data[SP_BLESerial_Data::SPECS_DATA::LENGTH].is<int>()) {
-                paddle->specs.length = data[SP_BLESerial_Data::SPECS_DATA::LENGTH];
-                Serial.printf("Length: %d\n", paddle->specs.length);
-            }
-            if (data[SP_BLESerial_Data::SPECS_DATA::PADDLE_TYPE].is<int>()) {
-                paddle->specs.paddleType = (PaddleType)data[SP_BLESerial_Data::SPECS_DATA::PADDLE_TYPE];
-                Serial.printf("Paddle type: %d\n", paddle->specs.paddleType);
-            }
-            if (data[SP_BLESerial_Data::SPECS_DATA::PADDLE_ID].is<const char*>()) {
-                paddle->specs.PaddleID = (const char*)data[SP_BLESerial_Data::SPECS_DATA::PADDLE_ID];
-                Serial.printf("Paddle ID: %s\n", paddle->specs.PaddleID);
-            }
-            return;
-        }
-        if (strcmp(dataType, SP_BLESerial_Data::BLADE_ORIENTATION) == 0){
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::Y_AXIS_DIRECTION].is<int>()) {
-                paddle->bladeOrientation.YAxisDirection = (signed char)data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::Y_AXIS_DIRECTION];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_ANGLE].is<float>()) {
-                paddle->bladeOrientation.rightBladeAngle = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_ANGLE];
-                Serial.printf("Right blade angle: %f\n", paddle->bladeOrientation.rightBladeAngle);
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_ANGLE].is<float>()) {
-                paddle->bladeOrientation.leftBladeAngle = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_ANGLE];
-                Serial.printf("Left blade angle: %f\n", paddle->bladeOrientation.leftBladeAngle);
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_X].is<float>()) {
-                paddle->bladeOrientation.rightBladeVector[0] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_X];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Y].is<float>()) {
-                paddle->bladeOrientation.rightBladeVector[1] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Y];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Z].is<float>()) {
-                paddle->bladeOrientation.rightBladeVector[2] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::RIGHT_BLADE_VECTOR_Z];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_X].is<float>()) {
-                paddle->bladeOrientation.leftBladeVector[0] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_X];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Y].is<float>()) {
-                paddle->bladeOrientation.leftBladeVector[1] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Y];
-            }
-            if (data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Z].is<float>()) {
-                paddle->bladeOrientation.leftBladeVector[2] = data[SP_BLESerial_Data::BLADE_ORIENTATION_DATA::LEFT_BLADE_VECTOR_Z];
-            }
-            return;
-        }
 
-
+    virtual void onSpecsData(SP_Data* data, const PaddleSpecs& specs) override{
+        paddle->specs = specs;
+        Serial.printf("Paddle specs: \n");
+        Serial.printf("Firmware version: %d\n", paddle->specs.firmwareVersion);
+        Serial.printf("Paddle model: %s\n", paddle->specs.paddleModel);
+        Serial.printf("Blade power: %d\n", paddle->specs.bladePower);
+        Serial.printf("Length: %d\n", paddle->specs.length);
+        Serial.printf("Paddle type: %d\n", paddle->specs.paddleType);
+        Serial.printf("Paddle ID: %s\n", paddle->specs.paddleID);
+        Serial.printf("Has left blade: %d\n", paddle->specs.hasLeftBlade);
+        Serial.printf("Has right blade: %d\n", paddle->specs.hasRightBlade);
     }
-    void onStatus(JsonObject& status){
+
+    virtual void onBladeOrientationData(SP_Data* data, const BladeOrientation& bladeOrientation) override{
+        paddle->bladeOrientation = bladeOrientation;
+        Serial.printf("Blade orientation: \n");
+        Serial.printf("Y axis direction: %d\n", paddle->bladeOrientation.YAxisDirection);
+        Serial.printf("Right blade angle: %f\n", paddle->bladeOrientation.rightBladeAngle);
+        Serial.printf("Left blade angle: %f\n", paddle->bladeOrientation.leftBladeAngle);
+    }
+
+    virtual void onStatus(SP_StatusMessage* status) override{
         Serial.printf("Got Paddle status\n");
+
     }
 };
 
@@ -278,7 +236,7 @@ SmartPaddleBLEClient::SmartPaddleBLEClient(const char* prefs_Name)
 
  {
     serial=new SP_BLESerialClient(this);
-    messageHandler=new SerialClient_MessageHandler(this);
+    messageHandler=new SPClient_MessageHandler(this);
     serial->setMessageHandler(messageHandler);
 }
 
@@ -625,15 +583,12 @@ void SmartPaddleBLEClient::updateBLE() {
 }
 
 void SmartPaddleBLEClient::calibrateIMU() {
-    if (serial) serial->sendCommand(SP_BLESerial_Commands::CALIBRATE_IMU);
+    if (serial) serial->sendString(SP_MessageProcessor::createCalibrateIMUCommand());
 }
 
 void SmartPaddleBLEClient::calibrateLoads(BladeSideType blade_side) {
     if (serial) {
-        JsonDocument doc;
-        JsonObject params=doc.to<JsonObject>();
-        params[SP_BLESerial_Commands::BLADE_SIDE_PARAM] = blade_side;
-        serial->sendCommand(SP_BLESerial_Commands::CALIBRATE_LOADS, &params);    
+        serial->sendString(SP_MessageProcessor::createCalibrateLoadsCommand(blade_side));    
     }
 }
 
@@ -661,15 +616,12 @@ bool SmartPaddleBLEClient::setupCharacteristics() {
 }
 
 void SmartPaddleBLEClient::shutdown() {
-    if (serial) serial->sendCommand(SP_BLESerial_Commands::SHUTDOWN);
+    if (serial) serial->sendString(SP_MessageProcessor::createShutdownCommand());
 }
 
 void SmartPaddleBLEClient::calibrateBladeAngle(BladeSideType blade_side) {
     if (serial) {
-        JsonDocument doc;
-        JsonObject params=doc.to<JsonObject>();
-        params[SP_BLESerial_Commands::BLADE_SIDE_PARAM] = blade_side;
-        serial->sendCommand(SP_BLESerial_Commands::CALIBRATE_BLADE_ANGLE, &params);    
+        serial->sendString(SP_MessageProcessor::createCalibrateBladeAngleCommand(blade_side));    
     }
 }
 
