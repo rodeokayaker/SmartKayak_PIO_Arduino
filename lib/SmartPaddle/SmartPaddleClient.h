@@ -46,28 +46,20 @@ private:
     TaskHandle_t eventTaskHandle;
     uint16_t bleSendFrequency;
     uint16_t bleReceiveFrequency;
-    
-    // Очереди для хранения полученных данных
 
-    //TODO: для подключения нескольких весел, с этим нужно будет поработать
-    //Надо будет сделать очередь для каждого весла
     OverwritingQueue<loadData> loadsensorQueue;
     OverwritingQueue<OrientationData> orientationQueue;
     OverwritingQueue<IMUData> imuQueue;
-//    OverwritingQueue<BladeData> bladeQueue;
-
 
     uint32_t timeDifference;
 
     IMUData current_imu_data;
     loadData current_loads_data;
     OrientationData current_orientation_data;
-//    BladeData current_blade_data;
     
     void forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     void imuCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     void orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-//    void bladeCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     
     void loadTrustedDevice();
     void saveTrustedDevice(BLEAddress* address);
@@ -93,7 +85,6 @@ public:
     bool receiveLoadData(loadData& data, TickType_t timeout = 0);
     bool receiveIMUData(IMUData& data, TickType_t timeout = 0);
     bool receiveOrientationData(OrientationData& data, TickType_t timeout = 0);
-//    bool receiveBladeData(BladeData& data, TickType_t timeout = 0);
     bool isPairing(){return is_pairing;}
     
     // Методы для работы со сканированием
@@ -112,7 +103,5 @@ public:
     uint32_t paddleMillis() override;
     uint32_t toLocalMillis(uint32_t timestamp) {return timestamp+timeDifference;}
 };
-
-//extern std::map<void*, SmartPaddle*> PaddleMap;
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

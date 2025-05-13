@@ -76,6 +76,30 @@ void SP_MessageProcessor::processCommand(SP_Command* command) {
     }
     else if (strcmp(command->command.c_str(), SP_Protocol::Commands::CALIBRATE_COMPASS) == 0) {
         handler->onCalibrateCompassCommand(command);
+    }
+    else if (strcmp(command->command.c_str(), SP_Protocol::Commands::SET_MAGNETOMETER_CALIBRATION) == 0) {
+        float offset[3];
+        float softIron[9];
+        offset[0] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X, 0.0f);
+        offset[1] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Y, 0.0f);
+        offset[2] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Z, 0.0f);
+        softIron[0] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_0, 1.0f);
+        softIron[1] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_1, 0.0f);
+        softIron[2] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_2, 0.0f);
+        softIron[3] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_0, 0.0f);
+        softIron[4] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_1, 1.0f);
+        softIron[5] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_2, 0.0f);
+        softIron[6] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_0, 0.0f);
+        softIron[7] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_1, 0.0f);
+        softIron[8] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_2, 1.0f);
+        handler->onSetMagnetometerCalibrationCommand(command, offset, softIron);
+    }
+    else if (strcmp(command->command.c_str(), SP_Protocol::Commands::SET_MAGNETOMETER_OFFSET) == 0) {
+        float offset[3];
+        offset[0] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X, 0.0f);
+        offset[1] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Y, 0.0f);
+        offset[2] = getParam<float>(command->params, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Z, 0.0f);
+        handler->onSetMagnetometerOffsetCommand(command, offset);
     } else {
         handler->onCommand(command);
     }
@@ -157,14 +181,40 @@ void SP_MessageProcessor::processData(SP_Data* data) {
         specs.paddleID = getParam<String>(data->value, SP_Protocol::DataTypes::Specs::PADDLE_ID, "");
         specs.paddleType = (PaddleType)getParam<int>(data->value, SP_Protocol::DataTypes::Specs::PADDLE_TYPE, 0);
         specs.paddleModel = getParam<String>(data->value, SP_Protocol::DataTypes::Specs::PADDLE_MODEL, "");
-        specs.bladePower = getParam<int>(data->value, SP_Protocol::DataTypes::Specs::BLADE_POWER, 0);
         specs.length = getParam<int>(data->value, SP_Protocol::DataTypes::Specs::LENGTH, 0);
         specs.imuFrequency = getParam<int>(data->value, SP_Protocol::DataTypes::Specs::IMU_FREQUENCY, 0);
         specs.hasLeftBlade = getParam<bool>(data->value, SP_Protocol::DataTypes::Specs::HAS_LEFT_BLADE, false);
         specs.hasRightBlade = getParam<bool>(data->value, SP_Protocol::DataTypes::Specs::HAS_RIGHT_BLADE, false);
         specs.firmwareVersion = getParam<int>(data->value, SP_Protocol::DataTypes::Specs::FIRMWARE_VERSION, 0);
-        
+        specs.imuDistance = getParam<float>(data->value, SP_Protocol::DataTypes::Specs::IMU_DISTANCE, 0.0f);
         handler->onSpecsData(data, specs);
+    } else if (strcmp(data->dataType.c_str(), SP_Protocol::DataTypes::MAGNETOMETER_CALIBRATION) == 0) {
+        float offset[3];
+        float softIron[9];
+        offset[0] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X, 0.0f);
+        offset[1] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Y, 0.0f);
+        offset[2] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Z, 0.0f);
+        softIron[0] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_0, 1.0f);
+        softIron[1] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_1, 0.0f);
+        softIron[2] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_2, 0.0f);
+        softIron[3] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_0, 0.0f);
+        softIron[4] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_1, 1.0f);
+        softIron[5] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_2, 0.0f);
+        softIron[6] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_0, 0.0f);
+        softIron[7] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_1, 0.0f);
+        softIron[8] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_2, 1.0f);
+        handler->onMagnetometerCalibrationData(data, offset, softIron);
+    }
+    else if (strcmp(data->dataType.c_str(), SP_Protocol::DataTypes::MAGNETOMETER_CALIBRATION_STATUS) == 0) {
+        int status = getParam<int>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::STATUS, 0);
+        handler->onMagnetometerCalibrationStatusData(data, status);
+    }
+    else if (strcmp(data->dataType.c_str(), SP_Protocol::DataTypes::MAGNETOMETER_OFFSET) == 0) {
+        float offset[3];
+        offset[0] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X, 0.0f);
+        offset[1] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Y, 0.0f);
+        offset[2] = getParam<float>(data->value, SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Z, 0.0f);
+        handler->onMagnetometerOffsetData(data, offset);
     }
 }
 
@@ -310,8 +360,8 @@ String SP_MessageProcessor::createSpecsMessage(const PaddleSpecs& specs) {
     msg.value[SP_Protocol::DataTypes::Specs::PADDLE_ID] = specs.paddleID;
     msg.value[SP_Protocol::DataTypes::Specs::PADDLE_TYPE] = specs.paddleType;
     msg.value[SP_Protocol::DataTypes::Specs::PADDLE_MODEL] = specs.paddleModel;
-    msg.value[SP_Protocol::DataTypes::Specs::BLADE_POWER] = specs.bladePower;
     msg.value[SP_Protocol::DataTypes::Specs::LENGTH] = specs.length;
+    msg.value[SP_Protocol::DataTypes::Specs::IMU_DISTANCE] = specs.imuDistance;
     msg.value[SP_Protocol::DataTypes::Specs::IMU_FREQUENCY] = specs.imuFrequency;
     msg.value[SP_Protocol::DataTypes::Specs::HAS_LEFT_BLADE] = specs.hasLeftBlade;
     msg.value[SP_Protocol::DataTypes::Specs::HAS_RIGHT_BLADE] = specs.hasRightBlade;

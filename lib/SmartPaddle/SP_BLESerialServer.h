@@ -71,11 +71,13 @@ public:
         if(started) return;
         setupSerialService();
         started = true;
+        startJsonProcessTask();
     }
 
     void end() override {
         if(!started) return;
         flush();
+        stopJsonProcessTask();
         serialService->stop();
         started = false;
     }

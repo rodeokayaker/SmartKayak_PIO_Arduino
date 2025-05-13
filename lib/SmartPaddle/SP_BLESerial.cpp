@@ -21,10 +21,65 @@ SP_BLESerial::SP_BLESerial(SmartPaddle* p) :
     lastFlushTime(0),
     jsonIncomingBufferLength(0),
     jsonIncomingBufferIndex(0),
+    jsonProcessTaskHandle(NULL),
+    jsonMessageQueue(NULL),
+    taskRunning(false),
     messageProcessor() {}
+
+SP_BLESerial::~SP_BLESerial() {
+    stopJsonProcessTask();
+}
 
 void SP_BLESerial::setMessageHandler(SP_MessageHandler* handler) {
     messageProcessor.setHandler(handler);
+}
+
+void SP_BLESerial::startJsonProcessTask() {
+    if (!taskRunning) {
+        // Создаем очередь для сообщений
+        jsonMessageQueue = xQueueCreate(JSON_QUEUE_SIZE, sizeof(JsonMessageTask));
+        
+        // Создаем задачу для обработки JSON
+        xTaskCreate(
+            jsonProcessTaskFunction,    // Функция задачи
+            "JsonProcessTask",           // Имя задачи
+            4096,                        // Размер стека
+            this,                        // Параметр (указатель на текущий объект)
+            1,                           // Приоритет
+            &jsonProcessTaskHandle       // Дескриптор задачи
+        );
+        
+        taskRunning = true;
+    }
+}
+
+void SP_BLESerial::stopJsonProcessTask() {
+    if (taskRunning) {
+        if (jsonProcessTaskHandle != NULL) {
+            vTaskDelete(jsonProcessTaskHandle);
+            jsonProcessTaskHandle = NULL;
+        }
+        
+        if (jsonMessageQueue != NULL) {
+            vQueueDelete(jsonMessageQueue);
+            jsonMessageQueue = NULL;
+        }
+        
+        taskRunning = false;
+    }
+}
+
+void SP_BLESerial::jsonProcessTaskFunction(void* parameter) {
+    SP_BLESerial* serial = static_cast<SP_BLESerial*>(parameter);
+    JsonMessageTask message;
+    
+    while (true) {
+        // Ждем сообщения из очереди
+        if (xQueueReceive(serial->jsonMessageQueue, &message, portMAX_DELAY) == pdTRUE) {
+            // Обрабатываем JSON
+            serial->messageProcessor.processJson(message.message);
+        }
+    }
 }
 
 // Реализация Stream
@@ -132,7 +187,24 @@ bool SP_BLESerial::updateJSON(bool printOther)
             if (jsonIncomingBufferIndex==0) 
             {
                 jsonIncomingBuffer[jsonIncomingBufferLength] = '\0';
-                messageProcessor.processJson(jsonIncomingBuffer);
+                
+                if (taskRunning && jsonMessageQueue != NULL) {
+                    // Создаем структуру для сообщения
+                    JsonMessageTask message;
+                    // Копируем сообщение в структуру
+                    strncpy(message.message, jsonIncomingBuffer, SP_JSON_BUFFER_SIZE - 1);
+                    message.message[SP_JSON_BUFFER_SIZE - 1] = '\0';
+                    
+                    // Отправляем сообщение в очередь, с таймаутом 0 (неблокирующий режим)
+                    if (xQueueSend(jsonMessageQueue, &message, 0) != pdTRUE) {
+                        // Если очередь заполнена, обрабатываем здесь
+                        messageProcessor.processJson(jsonIncomingBuffer);
+                    }
+                } else {
+                    // Если задача не запущена, обрабатываем сообщение здесь
+                    messageProcessor.processJson(jsonIncomingBuffer);
+                }
+                
                 jsonIncomingBufferIndex = 0;
                 jsonIncomingBufferLength = 0;
                 break;

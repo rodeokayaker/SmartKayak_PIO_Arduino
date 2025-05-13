@@ -18,6 +18,8 @@ namespace SP_Protocol {
         const char* START_PAIR = "start_pair";
         const char* SHUTDOWN = "shutdown";
         const char* TARE_LOADS = "tare_loads";
+        const char* SET_MAGNETOMETER_CALIBRATION = "set_m_calib";
+        const char* SET_MAGNETOMETER_OFFSET = "set_m_offset";
 
         namespace Params {
             const char* BLADE_SIDE = "blade_side";
@@ -36,14 +38,18 @@ namespace SP_Protocol {
         const char* ORIENTATION = "orientation";
         const char* BLADE_ORIENTATION = "blade_orientation";
         const char* STATUS = "status";
+        const char* MAGNETOMETER_CALIBRATION = "m_calib";
+        const char* MAGNETOMETER_OFFSET = "m_offset";
+        const char* MAGNETOMETER_CALIBRATION_STATUS = "m_calib_status";
+
 
         namespace Specs {
             const char* PADDLE_ID = "paddleID";
             const char* PADDLE_TYPE = "paddleType";
             const char* PADDLE_MODEL = "paddleModel";
-            const char* BLADE_POWER = "bladePower";
             const char* LENGTH = "length";
             const char* IMU_FREQUENCY = "imuFrequency";
+            const char* IMU_DISTANCE = "imuDistance";
             const char* HAS_LEFT_BLADE = "hasLeftBlade";
             const char* HAS_RIGHT_BLADE = "hasRightBlade";
             const char* FIRMWARE_VERSION = "firmwareVersion";
@@ -100,6 +106,22 @@ namespace SP_Protocol {
         namespace StatusData {
             const char* BATTERY = "battery";
             const char* TEMPERATURE = "temperature";
+        }
+
+        namespace MagnetometerCalibration {
+            const char* OFFSET_X = "offset_x";
+            const char* OFFSET_Y = "offset_y";
+            const char* OFFSET_Z = "offset_z";
+            const char* SOFT_IRON_0_0 = "soft_iron_0_0";
+            const char* SOFT_IRON_0_1 = "soft_iron_0_1";
+            const char* SOFT_IRON_0_2 = "soft_iron_0_2";
+            const char* SOFT_IRON_1_0 = "soft_iron_1_0";
+            const char* SOFT_IRON_1_1 = "soft_iron_1_1";
+            const char* SOFT_IRON_1_2 = "soft_iron_1_2";
+            const char* SOFT_IRON_2_0 = "soft_iron_2_0";
+            const char* SOFT_IRON_2_1 = "soft_iron_2_1";
+            const char* SOFT_IRON_2_2 = "soft_iron_2_2";
+            const char* STATUS = "status";
         }
     }
     

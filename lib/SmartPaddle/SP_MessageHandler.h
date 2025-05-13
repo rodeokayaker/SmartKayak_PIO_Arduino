@@ -23,6 +23,8 @@ public:
     virtual void onStartPairCommand(SP_Command* command) {};
     virtual void onShutdownCommand(SP_Command* command) {};
     virtual void onTareLoadsCommand(SP_Command* command, BladeSideType bladeSide) {};
+    virtual void onSetMagnetometerCalibrationCommand(SP_Command* command, float* offset, float* softIron) {};
+    virtual void onSetMagnetometerOffsetCommand(SP_Command* command, float* offset) {};
     
     // Специализированные обработчики данных
     virtual void onIMUData(SP_Data* data, const IMUData& imuData) {};
@@ -30,6 +32,9 @@ public:
     virtual void onOrientationData(SP_Data* data, const OrientationData& orientationData) {};
     virtual void onBladeOrientationData(SP_Data* data, const BladeOrientation& bladeOrientation) {};
     virtual void onSpecsData(SP_Data* data, const PaddleSpecs& specs) {};
+    virtual void onMagnetometerCalibrationData(SP_Data* data, float* offset, float* softIron) {};
+    virtual void onMagnetometerOffsetData(SP_Data* data, float* offset) {};
+    virtual void onMagnetometerCalibrationStatusData(SP_Data* data, int status) {};
     
     virtual ~SP_MessageHandler() = default;
 };

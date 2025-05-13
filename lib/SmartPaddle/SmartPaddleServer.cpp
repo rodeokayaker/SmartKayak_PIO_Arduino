@@ -41,6 +41,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         paddle->setLogStream(paddle->getSerial());
         paddle->calibrateIMU();
         paddle->setLogStream(&Serial);
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "IMU calibrated"));
         paddle->sendData=true;
     }
 
@@ -50,6 +51,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         paddle->setLogStream(paddle->getSerial());
         paddle->calibrateLoads(bladeSide);
         paddle->setLogStream(&Serial);
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Loads calibrated"));
         paddle->sendData=true;
     }
 
@@ -66,6 +68,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
             paddle->loads[1]->tare();
         }
         paddle->setLogStream(&Serial);
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Loads tared"));
         paddle->sendData=true;
     }
 
@@ -74,6 +77,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         paddle->setLogStream(paddle->getSerial());
         paddle->calibrateBladeAngle(bladeSide);
         paddle->setLogStream(&Serial);
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Blade angle calibrated"));
     }
 
     void onCalibrateCompassCommand(SP_Command* command) override{
@@ -83,11 +87,13 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         paddle->imu->calibrateCompass();
         paddle->sendData=true;
         paddle->setLogStream(&Serial);
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Compass calibrated"));
     }
 
     void onSendSpecsCommand(SP_Command* command) override{
         Serial.printf("Send specs command\n");
         paddle->sendSpecs();
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, ""));
     }
 
     void onStartPairCommand(SP_Command* command) override{
@@ -102,6 +108,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
 
     void onCommand(SP_Command* command) override{
         Serial.printf("Paddle got unknown command: %s\n", command->command.c_str());
+        paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), false, "Unknown command"));
     }
 
     void onResponse(SP_Response* response) override{
@@ -181,11 +188,13 @@ class SPServerRTOS{
             return;
         }
         uint32_t frequency = paddle->loadCellFrequency;
-        const TickType_t xFrequency = (frequency>0)?pdMS_TO_TICKS(1000/frequency):0;        
+        const TickType_t xFrequency = (frequency>0)?pdMS_TO_TICKS(1000/frequency):0;  
+        uint32_t last_update = millis();      
         while(1) {
             if (paddle->connected()) {
                 if (paddle->sendData){ 
-                    if (paddle->updateLoads()){               
+                    if (paddle->updateLoads()){ 
+                        last_update = millis();
                         // Разбудить BLESend задачу
                         xTaskNotifyGive(paddle->bleSendTaskHandle);
                     }
@@ -249,7 +258,6 @@ class SPServerRTOS{
             //Waiting for wakeup
             ulTaskNotifyTake(pdTRUE, xFrequency);
             paddle->updateBLE();
-            //vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }
 
@@ -343,12 +351,10 @@ class SPServerRTOS{
 
         #ifdef HX711_USE_INTERRUPT
         if (mainPaddle->loads[0] && mainPaddle->loads[0]->getDRDYPin()>=0){
-//            pinMode(mainPaddle->loads[0]->getDRDYPin(), INPUT);
             attachInterrupt(digitalPinToInterrupt(mainPaddle->loads[0]->getDRDYPin()), SPServerRTOS::loadCellDataReady, FALLING);
             Serial.printf("Load cell 0 interrupt pin initialized: %d\n", mainPaddle->loads[0]->getDRDYPin());
         }
         if (mainPaddle->loads[1] && mainPaddle->loads[1]->getDRDYPin()>=0){
-//            pinMode(mainPaddle->loads[1]->getDRDYPin(), INPUT);
             attachInterrupt(digitalPinToInterrupt(mainPaddle->loads[1]->getDRDYPin()), SPServerRTOS::loadCellDataReady, FALLING);
             Serial.printf("Load cell 1 interrupt pin initialized: %d\n", mainPaddle->loads[1]->getDRDYPin());
         }
@@ -477,12 +483,10 @@ class SPBLEServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
 //        Serial.println("On Connect");
         BLEAddress clientAddress(param->connect.remote_bda);
-//        Serial.printf("Client address: %s\n", clientAddress.toString().c_str());
         server->conn_id=param->connect.conn_id;
         
         if (server->connected()){
             Serial.printf("Already connected to %s\n", server->trustedDevice->toString().c_str());
-//            pServer->disconnect(param->connect.conn_id);
             return;
         }
 
@@ -581,10 +585,6 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
         SmartPaddleUUID::ORIENTATION_UUID,
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
-//    bladeCharacteristic = pService->createCharacteristic(
-//        SmartPaddleUUID::BLADE_UUID,
-//        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-//    );
     pService->start();
 
     // Start BLE serial communication
@@ -842,14 +842,6 @@ IMUData SmartPaddleBLEServer::getIMUData(){
 }
 
 loadData SmartPaddleBLEServer::getLoadData(){
-/*    loadData data;
-    data.forceR = (int32_t)loads[0]->getForce();
-    if (loads[1])
-        data.forceL = (int32_t)loads[1]->getForce();
-    else
-        data.forceL = 0;
-    data.timestamp=millis();    
-    return data;*/
     return lastLoadData;
 }
 

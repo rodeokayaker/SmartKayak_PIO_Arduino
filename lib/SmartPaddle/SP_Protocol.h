@@ -43,6 +43,8 @@ namespace SP_Protocol {
         extern const char* SEND_SPECS;             ///< Отправка спецификаций
         extern const char* START_PAIR;              ///< Старт пары
         extern const char* SHUTDOWN;                ///< Выключение
+        extern const char* SET_MAGNETOMETER_CALIBRATION; ///< Калибровка магнитометра
+        extern const char* SET_MAGNETOMETER_OFFSET; ///< Калибровка смещения магнитометра
         extern const char* TARE_LOADS;              ///< Калибровка нагрузки
 
         /**
@@ -50,6 +52,18 @@ namespace SP_Protocol {
          */
         namespace Params {
             extern const char* BLADE_SIDE;         ///< Сторона лопасти
+            extern const char* OFFSET_X;           ///< X смещение магнитометра
+            extern const char* OFFSET_Y;           ///< Y смещение магнитометра
+            extern const char* OFFSET_Z;           ///< Z смещение магнитометра
+            extern const char* SOFT_IRON_0_0;      ///< 0,0 коэффициент мягкого железа
+            extern const char* SOFT_IRON_0_1;      ///< 0,1 коэффициент мягкого железа
+            extern const char* SOFT_IRON_0_2;      ///< 0,2 коэффициент мягкого железа
+            extern const char* SOFT_IRON_1_0;      ///< 1,0 коэффициент мягкого железа
+            extern const char* SOFT_IRON_1_1;      ///< 1,1 коэффициент мягкого железа
+            extern const char* SOFT_IRON_1_2;      ///< 1,2 коэффициент мягкого железа
+            extern const char* SOFT_IRON_2_0;      ///< 2,0 коэффициент мягкого железа
+            extern const char* SOFT_IRON_2_1;      ///< 2,1 коэффициент мягкого железа
+            extern const char* SOFT_IRON_2_2;      ///< 2,2 коэффициент мягкого железа
         }
 
         /**
@@ -71,6 +85,9 @@ namespace SP_Protocol {
         extern const char* ORIENTATION;           ///< Ориентация
         extern const char* BLADE_ORIENTATION;     ///< Ориентация лопасти
         extern const char* STATUS;                ///< Статус устройства
+        extern const char* MAGNETOMETER_CALIBRATION; ///< Калибровка магнитометра
+        extern const char* MAGNETOMETER_CALIBRATION_STATUS;
+        extern const char* MAGNETOMETER_OFFSET;
 
         /**
          * @brief Поля для спецификаций
@@ -79,8 +96,8 @@ namespace SP_Protocol {
             extern const char* PADDLE_ID;
             extern const char* PADDLE_TYPE;
             extern const char* PADDLE_MODEL;
-            extern const char* BLADE_POWER;
             extern const char* LENGTH;
+            extern const char* IMU_DISTANCE;
             extern const char* IMU_FREQUENCY;
             extern const char* HAS_LEFT_BLADE;
             extern const char* HAS_RIGHT_BLADE;
@@ -119,9 +136,9 @@ namespace SP_Protocol {
             extern const char* QUAT_1;
             extern const char* QUAT_2;
             extern const char* QUAT_3;
-            extern const char* MAG_X_ALT;  // Добавлено для magX
-            extern const char* MAG_Y_ALT;  // Добавлено для magY
-            extern const char* MAG_Z_ALT;  // Добавлено для magZ
+            extern const char* MAG_X_ALT;  
+            extern const char* MAG_Y_ALT;  
+            extern const char* MAG_Z_ALT;  
             extern const char* TIMESTAMP;
         }
 
@@ -131,8 +148,8 @@ namespace SP_Protocol {
         namespace LoadData {
             extern const char* LEFT;
             extern const char* RIGHT;
-            extern const char* LEFT_RAW;   // Добавлено для left_raw
-            extern const char* RIGHT_RAW;  // Добавлено для right_raw
+            extern const char* LEFT_RAW;  
+            extern const char* RIGHT_RAW;  
             extern const char* TIMESTAMP;
         }
 
@@ -140,10 +157,10 @@ namespace SP_Protocol {
          * @brief Поля для данных ориентации
          */
         namespace OrientationData {
-            extern const char* QUAT_0;     // Изменено с ROLL
-            extern const char* QUAT_1;     // Изменено с PITCH
-            extern const char* QUAT_2;     // Изменено с YAW
-            extern const char* QUAT_3;     // Добавлено
+            extern const char* QUAT_0;     
+            extern const char* QUAT_1;     
+            extern const char* QUAT_2;     
+            extern const char* QUAT_3;     
             extern const char* TIMESTAMP;
         }
 
@@ -153,6 +170,25 @@ namespace SP_Protocol {
         namespace StatusData {
             extern const char* BATTERY;
             extern const char* TEMPERATURE;
+        }
+
+        /**
+         * @brief Поля для калибровки магнитометра
+         */
+        namespace MagnetometerCalibration {
+            extern const char* OFFSET_X;
+            extern const char* OFFSET_Y;
+            extern const char* OFFSET_Z;
+            extern const char* SOFT_IRON_0_0;
+            extern const char* SOFT_IRON_0_1;
+            extern const char* SOFT_IRON_0_2;
+            extern const char* SOFT_IRON_1_0;
+            extern const char* SOFT_IRON_1_1;
+            extern const char* SOFT_IRON_1_2;
+            extern const char* SOFT_IRON_2_0;
+            extern const char* SOFT_IRON_2_1;
+            extern const char* SOFT_IRON_2_2;
+            extern const char* STATUS;
         }
     }
 

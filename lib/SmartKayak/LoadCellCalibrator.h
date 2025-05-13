@@ -17,14 +17,15 @@ private:
     TareData rightTare;
     
     // Параметры весла
-    float paddleLength;        // длина весла в метрах
+    float paddleLength;       // длина весла в метрах
+    float imuDistance;        // расстояние от датчика до середины весла в метрах (справа положительно, слева отрицательно)
     float bladeWeight;        // вес лопасти в кг
     float bladeCenter;        // расстояние от конца весла до центра масс лопасти в метрах
     float bladeMomentInertia; // момент инерции лопасти кг*м^2
     
     static constexpr int SAMPLES_THRESHOLD = 100;
     static constexpr double ALPHA_LEFT = 0.2;   
-    static constexpr double ALPHA_RIGHT = 0.5;  
+    static constexpr double ALPHA_RIGHT = 0.2;  
 
     // Вычисление инерционных эффектов
     float calculateInertialEffects(const IMUData& imuData, 
@@ -38,11 +39,12 @@ private:
 
 public:
     LoadCellCalibrator(float paddleLength = 2.0f, 
+                      float imuDistance = 0.0f,
                       float bladeWeight = 0.25f, 
                       float bladeCenter = 0.15f,
                       float bladeMomentInertia = 0.01f);
     
-    void setPaddleParameters(float length, float weight, float center, float momentInertia);
+    void setPaddleParameters(float length, float imuDist, float weight, float center, float momentInertia);
     
     void updateTare(bool isRightBlade, double leftForce, double rightForce,
                    const IMUData& imuData, const BladeOrientation& bladeOrientation);

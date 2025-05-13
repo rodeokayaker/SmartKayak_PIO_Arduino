@@ -1,15 +1,17 @@
 #include "LoadCellCalibrator.h"
 
-LoadCellCalibrator::LoadCellCalibrator(float paddleLength, float bladeWeight, 
+LoadCellCalibrator::LoadCellCalibrator(float paddleLength, float imuDistance, float bladeWeight, 
                                      float bladeCenter, float bladeMomentInertia)
     : paddleLength(paddleLength), 
+      imuDistance(imuDistance),
       bladeWeight(bladeWeight), 
       bladeCenter(bladeCenter),
       bladeMomentInertia(bladeMomentInertia) {}
 
-void LoadCellCalibrator::setPaddleParameters(float length, float weight, 
+void LoadCellCalibrator::setPaddleParameters(float length, float imuDist, float weight, 
                                            float center, float momentInertia) {
     paddleLength = length;
+    imuDistance = imuDist;
     bladeWeight = weight;
     bladeCenter = center;
     bladeMomentInertia = momentInertia;
@@ -19,8 +21,8 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
                                                  const BladeOrientation& bladeOrientation,
                                                  bool isRightBlade) const {
     float leverArm = isRightBlade ? 
-        (paddleLength/2 - bladeCenter) : 
-        (-paddleLength/2 + bladeCenter);
+        (paddleLength/2 - imuDistance - bladeCenter) : 
+        (-paddleLength/2 - imuDistance + bladeCenter);
 
     // Получаем нормаль лопасти
     const float* bladeNormal = isRightBlade ? 
@@ -90,8 +92,8 @@ float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
     float gyroscopicMoment = angularMomentumY * transverseOmega;
     
     float leverArm = isRightBlade ? 
-        (paddleLength/2 - bladeCenter) : 
-        (-paddleLength/2 + bladeCenter);
+        (paddleLength/2 - imuDistance - bladeCenter) : 
+        (-paddleLength/2 - imuDistance + bladeCenter);
         
     return gyroscopicMoment / leverArm;
 }

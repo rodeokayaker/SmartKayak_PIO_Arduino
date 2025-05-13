@@ -108,8 +108,6 @@ public:
     void setIMU(IIMU* imuSensor){imu=imuSensor;}
     void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
 
-
-
     void disconnect() override;               // Disconnect paddle
 
     void startPairing();

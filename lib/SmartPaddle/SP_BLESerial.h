@@ -14,7 +14,8 @@
 #include "SP_MessageProcessor.h"
 
 #define SP_SERIAL_BUFFER_SIZE 4096
-#define SP_JSON_BUFFER_SIZE 1024
+#define SP_JSON_BUFFER_SIZE 4024
+#define JSON_QUEUE_SIZE 10
 
 // UUID для сервиса Serial
 namespace SPSerialUUID {
@@ -74,6 +75,11 @@ namespace SP_BLESerial_Data {
     }
 }
 
+// Структура для сообщений в очереди
+struct JsonMessageTask {
+    char message[SP_JSON_BUFFER_SIZE];
+};
+
 // Базовый класс для обработки сообщений
 /*class BLESerialMessageHandler {
 public:
@@ -100,17 +106,29 @@ protected:
     size_t transmitBufferLength;
     unsigned long lastFlushTime;    
 
+    // Для задачи RTOS
+    TaskHandle_t jsonProcessTaskHandle;
+    QueueHandle_t jsonMessageQueue;
+    bool taskRunning;
+
     // Методы для работы с JSON
     void sendJson(const JsonDocument& doc);
     void sendMessage(SP_Message& message);    
 
+    // Статическая функция задачи
+    static void jsonProcessTaskFunction(void* parameter);
+
 public:
     SP_BLESerial(SmartPaddle* p);
-    virtual ~SP_BLESerial() = default;
+    virtual ~SP_BLESerial();
 
     void setMessageHandler(SP_MessageHandler* handler);
     SP_MessageProcessor& Processor(){ return messageProcessor; };
     void sendString(const String& str);
+
+    // Инициализация и остановка задачи
+    void startJsonProcessTask();
+    void stopJsonProcessTask();
 
     // Реализация Stream
     virtual int available() override;

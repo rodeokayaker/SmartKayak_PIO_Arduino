@@ -83,12 +83,14 @@ public:
         if(started) return;
         if(setupSerialService()) {
             started = true;
+            startJsonProcessTask();
         }
     }
 
     void end() override {
         if(!started) return;
         flush();
+        stopJsonProcessTask();
         disconnect();
         started = false;
     }

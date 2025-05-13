@@ -24,10 +24,17 @@ struct BladeData {
 };
 
 struct PaddleSpecs {
+ 
     String paddleID;                // Paddle ID
     PaddleType paddleType;          // Blade type
+
     float length;                   // in meters
-    float bladePower;
+    float imuDistance;
+
+    float bladeWeight;        // вес лопасти в кг
+    float bladeCenter;        // расстояние от конца весла до центра масс лопасти в метрах
+    float bladeMomentInertia; // момент инерции лопасти кг*м^2
+
     uint16_t firmwareVersion;
     String paddleModel;
     bool hasLeftBlade;

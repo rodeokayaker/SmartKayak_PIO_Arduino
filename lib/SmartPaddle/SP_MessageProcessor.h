@@ -63,6 +63,7 @@ public:
     static String createSpecsMessage(const PaddleSpecs& specs);
     static String createStatusMessage(const PaddleStatus& status);
 
+
     // Ответы
     static String createSuccessResponse(const char* command, const char* message = "");
     static String createErrorResponse(const char* command, const char* message = "");
