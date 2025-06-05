@@ -38,16 +38,27 @@ void SP_BLESerial::startJsonProcessTask() {
     if (!taskRunning) {
         // Создаем очередь для сообщений
         jsonMessageQueue = xQueueCreate(JSON_QUEUE_SIZE, sizeof(JsonMessageTask));
+        if (jsonMessageQueue == NULL) {
+            Serial.println("Failed to create JSON message queue");
+            return;
+        }
         
         // Создаем задачу для обработки JSON
-        xTaskCreate(
+        BaseType_t taskCreated = xTaskCreate(
             jsonProcessTaskFunction,    // Функция задачи
-            "JsonProcessTask",           // Имя задачи
-            4096,                        // Размер стека
-            this,                        // Параметр (указатель на текущий объект)
-            1,                           // Приоритет
-            &jsonProcessTaskHandle       // Дескриптор задачи
+            "JsonProcessTask",          // Имя задачи
+            JSON_TASK_STACK_SIZE,       // Увеличенный размер стека
+            this,                       // Параметр (указатель на текущий объект)
+            1,                          // Приоритет
+            &jsonProcessTaskHandle      // Дескриптор задачи
         );
+        
+        if (taskCreated != pdPASS) {
+            Serial.println("Failed to create JSON processing task");
+            vQueueDelete(jsonMessageQueue);
+            jsonMessageQueue = NULL;
+            return;
+        }
         
         taskRunning = true;
     }
@@ -74,6 +85,13 @@ void SP_BLESerial::jsonProcessTaskFunction(void* parameter) {
     JsonMessageTask message;
     
     while (true) {
+        // Проверяем, что очередь существует
+        if (serial->jsonMessageQueue == NULL) {
+            Serial.println("JSON message queue is NULL");
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Ждем секунду перед следующей попыткой
+            continue;
+        }
+        
         // Ждем сообщения из очереди
         if (xQueueReceive(serial->jsonMessageQueue, &message, portMAX_DELAY) == pdTRUE) {
             // Обрабатываем JSON
@@ -162,55 +180,60 @@ bool SP_BLESerial::updateJSON(bool printOther)
     if(!started || !paddle->connected()) return false;
 
     char ch;
-    if (jsonIncomingBufferIndex==0) {
-        while(receiveBuffer.getLength() > 0) {
-            ch=receiveBuffer.pop();
-            if(ch=='{') {
-                jsonIncomingBufferIndex=1;
-                jsonIncomingBuffer[0]=ch;
-                jsonIncomingBufferLength=1;
-                break;
-            }
-            if (printOther) {
-                Serial.printf("%c", ch);
+//    while (receiveBuffer.getLength() > 0) {
+        if (jsonIncomingBufferIndex==0) {
+            while(receiveBuffer.getLength() > 0) {
+                ch=receiveBuffer.pop();
+                if(ch=='{') {
+                    jsonIncomingBufferIndex=1;
+                    jsonIncomingBuffer[0]=ch;
+                    jsonIncomingBufferLength=1;
+                    break;
+                }
+                if (printOther) {
+                    Serial.printf("%c", ch);
+                }
             }
         }
-    }
-    if (jsonIncomingBufferIndex>0){
-        while (receiveBuffer.getLength() > 0) {
-            ch=receiveBuffer.pop();
-            jsonIncomingBuffer[jsonIncomingBufferLength++] = ch;
+        if (jsonIncomingBufferIndex>0){
+            while (receiveBuffer.getLength() > 0) {
+                ch=receiveBuffer.pop();
+                jsonIncomingBuffer[jsonIncomingBufferLength++] = ch;
 
-            if (ch=='{') jsonIncomingBufferIndex++; 
-            else if (ch=='}') jsonIncomingBufferIndex--;
+                if (ch=='{') jsonIncomingBufferIndex++; 
+                else if (ch=='}') jsonIncomingBufferIndex--;
 
-            if (jsonIncomingBufferIndex==0) 
-            {
-                jsonIncomingBuffer[jsonIncomingBufferLength] = '\0';
-                
-                if (taskRunning && jsonMessageQueue != NULL) {
-                    // Создаем структуру для сообщения
-                    JsonMessageTask message;
-                    // Копируем сообщение в структуру
-                    strncpy(message.message, jsonIncomingBuffer, SP_JSON_BUFFER_SIZE - 1);
-                    message.message[SP_JSON_BUFFER_SIZE - 1] = '\0';
+                if (jsonIncomingBufferIndex==0) 
+                {
+                    jsonIncomingBuffer[jsonIncomingBufferLength] = '\0';
                     
-                    // Отправляем сообщение в очередь, с таймаутом 0 (неблокирующий режим)
-                    if (xQueueSend(jsonMessageQueue, &message, 0) != pdTRUE) {
-                        // Если очередь заполнена, обрабатываем здесь
+                    if (taskRunning && jsonMessageQueue != NULL) {
+                        // Создаем структуру для сообщения
+                        JsonMessageTask message;
+                        // Копируем сообщение в структуру
+                        strncpy(message.message, jsonIncomingBuffer, SP_JSON_BUFFER_SIZE - 1);
+                        message.message[SP_JSON_BUFFER_SIZE - 1] = '\0';
+                        
+                        // Отправляем сообщение в очередь, с таймаутом 0 (неблокирующий режим)
+                        if (xQueueSend(jsonMessageQueue, &message, 0) != pdTRUE) {
+                            // Если очередь заполнена, обрабатываем здесь
+                            Serial.println("JSON queue is full");
+                            messageProcessor.processJson(jsonIncomingBuffer);
+
+                        }
+                    } else {
+                        // Если задача не запущена или очередь не создана, обрабатываем здесь
+                        Serial.println("JSON task is not running");
                         messageProcessor.processJson(jsonIncomingBuffer);
                     }
-                } else {
-                    // Если задача не запущена, обрабатываем сообщение здесь
-                    messageProcessor.processJson(jsonIncomingBuffer);
+                    
+                    jsonIncomingBufferIndex = 0;
+                    jsonIncomingBufferLength = 0;
+                    break;
                 }
-                
-                jsonIncomingBufferIndex = 0;
-                jsonIncomingBufferLength = 0;
-                break;
             }
         }
-    }
+//    }
     return true;
 }
 

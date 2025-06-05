@@ -15,6 +15,7 @@ struct IMUCalibData {
     // Калибровочные данные магнитометра
     float magOffset[3];    // Смещения нуля по трем осям
     float magScale[3];       // Масштабирующие коэффициенты для нормализации
+    float magSI[3];        // Soft iron matrix ({0,1} {0,2} {1,2})
 };
 
 // IMU data structure

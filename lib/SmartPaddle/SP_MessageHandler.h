@@ -25,7 +25,7 @@ public:
     virtual void onTareLoadsCommand(SP_Command* command, BladeSideType bladeSide) {};
     virtual void onSetMagnetometerCalibrationCommand(SP_Command* command, float* offset, float* softIron) {};
     virtual void onSetMagnetometerOffsetCommand(SP_Command* command, float* offset) {};
-    
+    virtual void onSendCalibrationDataCommand(SP_Command* command) {};
     // Специализированные обработчики данных
     virtual void onIMUData(SP_Data* data, const IMUData& imuData) {};
     virtual void onLoadData(SP_Data* data, const loadData& loadData) {};

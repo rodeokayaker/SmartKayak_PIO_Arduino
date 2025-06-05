@@ -8,14 +8,19 @@
 #include "ByteRingBuffer.h"
 #include <BLECharacteristic.h>
 #include <ArduinoJson.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 
 #include "SP_Message.h"
 #include "SP_MessageHandler.h"
 #include "SP_MessageProcessor.h"
 
 #define SP_SERIAL_BUFFER_SIZE 4096
-#define SP_JSON_BUFFER_SIZE 4024
-#define JSON_QUEUE_SIZE 10
+#define SP_JSON_BUFFER_SIZE 4096
+#define JSON_BUFFER_SIZE 4096
+#define JSON_QUEUE_SIZE 5
+#define JSON_TASK_STACK_SIZE 16384
 
 // UUID для сервиса Serial
 namespace SPSerialUUID {

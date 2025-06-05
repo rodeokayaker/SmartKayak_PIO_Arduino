@@ -48,7 +48,7 @@ private:
 public:
     SP_BLESerialServer(SmartPaddle* p) : 
         SP_BLESerial(p)
-         {}
+         {        }
 
 
     void flush() override {
@@ -77,9 +77,9 @@ public:
     void end() override {
         if(!started) return;
         flush();
-        stopJsonProcessTask();
         serialService->stop();
         started = false;
+        stopJsonProcessTask();
     }
 
     void update() override {

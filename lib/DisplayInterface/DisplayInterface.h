@@ -1,5 +1,7 @@
 #pragma once
 #include <Arduino.h>
+#include "InterfaceMotor.h"
+#include "LogInterface.h"
 
 // Базовый интерфейс для отображения
 class IDisplay {
@@ -42,6 +44,11 @@ struct KayakDisplayData {
     
     // Мотор
     int motorForce;
+
+    //Paddle
+    bool isPaddleConnected;
+
+    // Дата и время
 };
 
 // Базовый класс для отображения данных каяка
@@ -50,10 +57,13 @@ protected:
     KayakDisplayData currentData;
     uint32_t updateInterval;
     uint32_t lastUpdate;
+    ILogSwitch* logSwitch;
+    IModeSwitch* motorSwitch;
+    IMotorDriver* motorDriver;
 
 public:
     explicit KayakDisplay(uint32_t interval = 100) 
-        : updateInterval(interval), lastUpdate(0) {}
+        : updateInterval(interval), lastUpdate(0), logSwitch(nullptr), motorSwitch(nullptr), motorDriver(nullptr) {}
     
     virtual void begin() = 0;
     virtual void update(const KayakDisplayData& data) {
@@ -64,7 +74,26 @@ public:
         updateDisplay();
         lastUpdate = millis();
     }
-    
+    void paddleConnected(bool connected) {
+        currentData.isPaddleConnected = connected;
+    }
+
+    KayakDisplayData getCurrentDisplayData() {
+        return currentData;
+    }
+
+    virtual void setLogSwitch(ILogSwitch* logSwitch) {
+        this->logSwitch = logSwitch;
+    }
+    virtual void setMotorSwitch(IModeSwitch* motorSwitch) {
+        this->motorSwitch = motorSwitch;
+    }
+    virtual void setMotorDriver(IMotorDriver* motorDriver) {
+        this->motorDriver = motorDriver;
+    }
+
+    virtual void setDebugData(int force, int load, bool scn= false) {};
+    virtual void switchDebugScreen(bool on) {};
 protected:
     virtual void updateDisplay() = 0;
 }; 

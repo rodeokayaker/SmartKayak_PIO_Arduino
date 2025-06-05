@@ -102,6 +102,7 @@ public:
     void calibrateBladeAngle(BladeSideType blade_side) override;
     uint32_t paddleMillis() override;
     uint32_t toLocalMillis(uint32_t timestamp) {return timestamp+timeDifference;}
+    void startTasks();
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

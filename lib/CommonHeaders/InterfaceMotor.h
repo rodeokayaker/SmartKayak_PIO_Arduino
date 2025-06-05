@@ -11,7 +11,8 @@ enum MotorPowerMode {
     MOTOR_OFF = 0,
     MOTOR_LOW_POWER = 1,
     MOTOR_MEDIUM_POWER = 2,
-    MOTOR_HIGH_POWER = 3
+    MOTOR_HIGH_POWER = 3,
+    MOTOR_DEBUG = 4
 };
 
 class IMotorDriver {

@@ -149,7 +149,7 @@ void ButtonDriver::begin(int frequency) {
     // Создаем таймер для длинного нажатия
     longPressTimer = xTimerCreate(
         "LongPress_Timer",
-        pdMS_TO_TICKS(3000), // 3 секунды
+        pdMS_TO_TICKS(BUTTON_LONG_PRESS_TIME), 
         pdFALSE,  // Одноразовый таймер
         this,     // ID таймера - указатель на объект
         longPressTimerCallback

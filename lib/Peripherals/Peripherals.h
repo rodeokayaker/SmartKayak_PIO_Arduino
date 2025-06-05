@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+#define BUTTON_LONG_PRESS_TIME 2000
+
 // Определения для LED
 enum LED_MODE {
     LED_OFF,

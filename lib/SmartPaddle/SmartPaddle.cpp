@@ -31,7 +31,7 @@ SmartPaddle::~SmartPaddle(){
 
 
 
-int SmartPaddle::BLEMTU = max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
+int SmartPaddle::BLEMTU =247;// max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
 
 bool log_imu = false;
 bool log_load = false;

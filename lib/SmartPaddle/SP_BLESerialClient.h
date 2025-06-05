@@ -27,6 +27,7 @@ private:
 
         // Добавляем полученные данные в буфер
         for(size_t i = 0; i < length; i++) {
+//            Serial.print((char)pData[i]);
             client->receiveBuffer.add(pData[i]);
         }
     }
@@ -65,7 +66,7 @@ private:
 public:
     SP_BLESerialClient(SmartPaddle* p) : 
         SP_BLESerial(p)
-         {}
+         { }
 
 
     void flush() override {
@@ -90,8 +91,8 @@ public:
     void end() override {
         if(!started) return;
         flush();
-        stopJsonProcessTask();
         disconnect();
         started = false;
+        stopJsonProcessTask();
     }
 };

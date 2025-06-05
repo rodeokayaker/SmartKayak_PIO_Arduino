@@ -2,6 +2,7 @@
 
 namespace SP_Protocol {
     namespace MessageType {
+        const char* TITLE = "type";
         const char* LOG = "log";
         const char* COMMAND = "cmd";
         const char* RESPONSE = "response";
@@ -10,6 +11,7 @@ namespace SP_Protocol {
     }
 
     namespace Commands {
+        const char* TITLE = "cmd";
         const char* CALIBRATE_COMPASS = "calibrate_compass";
         const char* CALIBRATE_LOADS = "calibrate_loads";
         const char* CALIBRATE_IMU = "calibrate_imu";
@@ -20,18 +22,24 @@ namespace SP_Protocol {
         const char* TARE_LOADS = "tare_loads";
         const char* SET_MAGNETOMETER_CALIBRATION = "set_m_calib";
         const char* SET_MAGNETOMETER_OFFSET = "set_m_offset";
-
+        const char* SET_SPECS = "set_specs";
+        const char* SEND_CALIBRATION_DATA = "send_calibration_data";
         namespace Params {
+            const char* TITLE = "params";
             const char* BLADE_SIDE = "blade_side";
         }
         
-        namespace Messages {
+        namespace Responses {
+            const char* TITLE = "success";
             const char* SUCCESS = "Success";
             const char* ERROR = "Error";
+            const char* MESSAGE = "msg";
         }
     }
 
     namespace DataTypes {
+        const char* TITLE = "dataType";
+        const char* VALUE = "value";
         const char* SPECS = "specs";
         const char* IMU = "imu";
         const char* LOAD = "load";
@@ -44,6 +52,7 @@ namespace SP_Protocol {
 
 
         namespace Specs {
+
             const char* PADDLE_ID = "paddleID";
             const char* PADDLE_TYPE = "paddleType";
             const char* PADDLE_MODEL = "paddleModel";
@@ -109,30 +118,40 @@ namespace SP_Protocol {
         }
 
         namespace MagnetometerCalibration {
-            const char* OFFSET_X = "offset_x";
-            const char* OFFSET_Y = "offset_y";
-            const char* OFFSET_Z = "offset_z";
-            const char* SOFT_IRON_0_0 = "soft_iron_0_0";
-            const char* SOFT_IRON_0_1 = "soft_iron_0_1";
-            const char* SOFT_IRON_0_2 = "soft_iron_0_2";
-            const char* SOFT_IRON_1_0 = "soft_iron_1_0";
-            const char* SOFT_IRON_1_1 = "soft_iron_1_1";
-            const char* SOFT_IRON_1_2 = "soft_iron_1_2";
-            const char* SOFT_IRON_2_0 = "soft_iron_2_0";
-            const char* SOFT_IRON_2_1 = "soft_iron_2_1";
-            const char* SOFT_IRON_2_2 = "soft_iron_2_2";
-            const char* STATUS = "status";
+            const char* OFFSET_X = "ox";
+            const char* OFFSET_Y = "oy";
+            const char* OFFSET_Z = "oz";
+            const char* SOFT_IRON_0_0 = "si00";
+            const char* SOFT_IRON_0_1 = "si01";
+            const char* SOFT_IRON_0_2 = "si02";
+            const char* SOFT_IRON_1_0 = "si10";
+            const char* SOFT_IRON_1_1 = "si11";
+            const char* SOFT_IRON_1_2 = "si12";
+            const char* SOFT_IRON_2_0 = "si20";
+            const char* SOFT_IRON_2_1 = "si21";
+            const char* SOFT_IRON_2_2 = "si22";
+            const char* STATUS = "sts";
         }
     }
-    
-    namespace JsonFields {
-        const char* TYPE = "type";
-        const char* DATA = "data";
-        const char* COMMAND = "cmd";
-        const char* PARAMS = "params";
-        const char* SUCCESS = "success";
-        const char* MESSAGE = "msg";
-        const char* DATA_TYPE = "dataType";
-        const char* VALUE = "value";
+
+    namespace Status {
+        const char* TITLE = "status";
+        const char* DEVICE_ID = "deviceID";
+        const char* FIRMWARE_VERSION = "firmwareVersion";
+        const char* HARDWARE_VERSION = "hardwareVersion";
+        const char* BATTERY_LEVEL = "batteryLevel";
+        const char* TEMPERATURE = "temperature";
+        const char* LOGGING_ACTIVE = "loggingActive";
+        const char* LOGGING_INTERVAL = "loggingInterval";
+        const char* FILTER_TYPE = "filterType";
+        const char* FILTER_CUTOFF = "filterCutoff";
+        const char* FILTER_ORDER = "filterOrder";
+        const char* BLADE_SIDE = "bladeSide";
+        const char* CALIBRATION_STATUS = "calibrationStatus";
     }
+
+    namespace LogMessages {
+        const char* MESSAGE = "msg";
+    }
+    
 } 

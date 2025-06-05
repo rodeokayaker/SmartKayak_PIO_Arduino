@@ -3,25 +3,19 @@
 #include <ArduinoJson.h>
 
 JsonDocument& SP_Command::serializeDocument() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::COMMAND;
-    document["data"]["cmd"] = command;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::COMMAND;
+    (*document)[SP_Protocol::Commands::TITLE] = command;
     if (params.size() > 0) {
-        document["data"]["params"].set(params);
+        (*document)[SP_Protocol::Commands::Params::TITLE].set(params);
     }
-    return document;
+    return *document;
 }
 
 bool SP_Command::deserialize() {
-    if (!document["data"].is<JsonObject>()) {
-        return false;
-    }
-    if (!document["data"]["cmd"].is<String>()) {
-        return false;
-    }
-    command = document["data"]["cmd"].as<String>();
-    if (document["data"]["params"].is<JsonObject>()) {
-        params = document["data"]["params"];
+    command = (*document)[SP_Protocol::Commands::TITLE].as<String>();
+    if ((*document)[SP_Protocol::Commands::Params::TITLE].is<JsonObject>()) {
+        params = (*document)[SP_Protocol::Commands::Params::TITLE];
     }
     return true;
 }
@@ -30,38 +24,30 @@ void SP_Command::create(const char* cmd) {
     if (!cmd) return;  // Защита от null-указателя
     
     command = cmd;
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::COMMAND;
-    document["data"]["cmd"] = cmd;
-    params = document["data"]["params"].to<JsonObject>();
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::COMMAND;
+    (*document)[SP_Protocol::Commands::TITLE] = cmd;
+    params = (*document)[SP_Protocol::Commands::Params::TITLE].to<JsonObject>();
 }
 
 JsonDocument& SP_Response::serializeDocument() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::RESPONSE;
-    document["data"]["cmd"] = command;
-    document["data"]["success"] = success;
-    document["data"]["msg"] = message;
-    return document;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::RESPONSE;
+    (*document)[SP_Protocol::Commands::TITLE] = command;
+    (*document)[SP_Protocol::Commands::Responses::TITLE] = success;
+    (*document)[SP_Protocol::Commands::Responses::MESSAGE] = message;
+    return *document;
 }
 
 bool SP_Response::deserialize() {
-    if (!document["data"].is<JsonObject>()) {
-        return false;
-    }
-    if (!document["data"]["cmd"].is<String>()) {
-        return false;
-    }
-    if (!document["data"]["success"].is<bool>()) {
-        return false;
-    }
+
     
-    command = document["data"]["cmd"].as<String>();
-    success = document["data"]["success"].as<bool>();
+    command = (*document)[SP_Protocol::Commands::TITLE].as<String>();
+    success = (*document)[SP_Protocol::Commands::Responses::TITLE].as<bool>();
     
     // Проверка наличия поля "msg", но делаем его опциональным
-    if (document["data"]["msg"].is<String>()) {
-        message = document["data"]["msg"].as<String>();
+    if ((*document)[SP_Protocol::Commands::Responses::MESSAGE].is<String>()) {
+        message = (*document)[SP_Protocol::Commands::Responses::MESSAGE].as<String>();
     } else {
         message = "";  // Пустое сообщение по умолчанию
     }
@@ -76,34 +62,24 @@ void SP_Response::create(const char* cmd, bool success, const char* msg) {
     this->success = success;
     message = msg ? msg : "";  // Защита от null-указателя
     
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::RESPONSE;
-    document["data"]["cmd"] = cmd;
-    document["data"]["success"] = success;
-    document["data"]["msg"] = message;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::RESPONSE;
+    (*document)[SP_Protocol::Commands::TITLE] = cmd;
+    (*document)[SP_Protocol::Commands::Responses::TITLE] = success;
+    (*document)[SP_Protocol::Commands::Responses::MESSAGE] = message;
 }
 
 JsonDocument& SP_Data::serializeDocument() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::DATA;
-    document["data"]["dataType"] = dataType;
-    document["data"]["value"].set(value);
-    return document;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::DATA;
+    (*document)[SP_Protocol::DataTypes::TITLE] = dataType;
+    (*document)[SP_Protocol::DataTypes::VALUE].set(value);
+    return *document;
 }
 
 bool SP_Data::deserialize() {
-    if (!document["data"].is<JsonObject>()) {
-        return false;
-    }
-    if (!document["data"]["dataType"].is<String>()) {
-        return false;
-    }
-    if (!document["data"]["value"].is<JsonObject>()) {
-        return false;
-    }
-    
-    dataType = document["data"]["dataType"].as<String>();
-    value = document["data"]["value"].to<JsonObject>();
+    dataType = (*document)[SP_Protocol::DataTypes::TITLE].as<String>();
+    value = (*document)[SP_Protocol::DataTypes::VALUE].as<JsonObject>();
     return true;
 }
 
@@ -111,60 +87,57 @@ void SP_Data::create(const char* dataType) {
     if (!dataType) return;  // Защита от null-указателя
     
     this->dataType = dataType;
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::DATA;
-    document["data"]["dataType"] = dataType;
-    value = document["data"]["value"].to<JsonObject>();
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::DATA;
+    (*document)[SP_Protocol::DataTypes::TITLE] = dataType;
+    value = (*document)[SP_Protocol::DataTypes::VALUE].to<JsonObject>();
 }
 
 JsonDocument& SP_LogMessage::serializeDocument() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::LOG;
-    document["data"]["msg"] = message;
-    return document;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::LOG;
+    (*document)[SP_Protocol::LogMessages::MESSAGE] = message;
+    return *document;
 }
 
 void SP_LogMessage::create(const char* msg) {
     if (!msg) return;  // Защита от null-указателя
     
     message = msg;
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::LOG;
-    document["data"]["msg"] = msg;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::LOG;
+    (*document)[SP_Protocol::LogMessages::MESSAGE] = msg;
 }
 
 bool SP_LogMessage::deserialize() {
-    if (!document["data"].is<JsonObject>()) {
-        return false;
-    }
-    if (!document["data"]["msg"].is<String>()) {
+    if (!(*document)[SP_Protocol::LogMessages::MESSAGE].is<String>()) {
         return false;
     }
     
-    message = document["data"]["msg"].as<String>();
+    message = (*document)[SP_Protocol::LogMessages::MESSAGE].as<String>();
     return true;  // Добавлен возврат значения
 }
 
 JsonDocument& SP_StatusMessage::serializeDocument() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::STATUS;
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::STATUS;
     if (status.size() > 0) {
-        document["data"].set(status);
+        (*document)[SP_Protocol::Status::TITLE].set(status);
     }
-    return document;
+    return *document;
 }
 
 bool SP_StatusMessage::deserialize() {
-    if (!document["data"].is<JsonObject>()) {
+    if (!(*document)[SP_Protocol::Status::TITLE].is<JsonObject>()) {
         return false;
     }
     
-    status = document["data"].to<JsonObject>();
+    status = (*document)[SP_Protocol::Status::TITLE].as<JsonObject>();
     return true;
 }
 
 void SP_StatusMessage::create() {
-    document.clear();
-    document["type"] = SP_Protocol::MessageType::STATUS;
-    status = document["data"].to<JsonObject>();
+    document->clear();
+    (*document)[SP_Protocol::MessageType::TITLE] = SP_Protocol::MessageType::STATUS;
+    status = (*document)[SP_Protocol::Status::TITLE].to<JsonObject>();
 }

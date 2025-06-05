@@ -17,6 +17,7 @@
 #define SENSOR_STACK_SIZE 4096
 #define IMU_STACK_SIZE 4096
 #define ORIENTATION_STACK_SIZE 4096
+#define MAGNETOMETER_STACK_SIZE 4096
 #define BLE_STACK_SIZE 4096
 #define BLE_RECEIVE_STACK_SIZE 8192
 
@@ -120,6 +121,38 @@ class SPServer_MessageHandler: public SP_MessageHandler{
     void onStatus(SP_StatusMessage* status) override{
         Serial.printf("Got Kayak status\n");
     }
+
+    void onSetMagnetometerCalibrationCommand(SP_Command* command, float* offset, float* softIron) override{
+        Serial.printf("Set magnetometer calibration command\n");
+        IMUCalibData calibData=paddle->imu->getCalibrationData();
+        calibData.magOffset[0]=offset[0];
+        calibData.magOffset[1]=offset[1];
+        calibData.magOffset[2]=offset[2];
+        calibData.magScale[0]=softIron[0];
+        calibData.magScale[1]=softIron[1];
+        calibData.magScale[2]=softIron[2];
+        calibData.magSI[0]=softIron[3];
+        calibData.magSI[1]=softIron[4];
+        calibData.magSI[2]=softIron[5];
+//        Serial.printf("Magnetometer calibration data: %f, %f, %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
+//        Serial.printf("Magnetometer soft iron data: %f, %f, %f\n", calibData.magScale[0], calibData.magScale[1], calibData.magScale[2]);
+//        Serial.printf("Magnetometer soft iron data: %f, %f, %f\n", calibData.magSI[0], calibData.magSI[1], calibData.magSI[2]);
+        paddle->imu->setCalibrationData(calibData,true);
+        
+    }
+
+    void onSpecsData(SP_Data* data, const PaddleSpecs& specs) override{
+        Serial.printf("Got Specs data\n");
+        String padddleID=paddle->specs.paddleID;
+        paddle->specs=specs;
+        paddle->specs.paddleID=padddleID;
+        paddle->saveSpecs();
+    }
+
+    void onSendCalibrationDataCommand(SP_Command* command) override{
+        Serial.printf("Send calibration data command\n");
+        paddle->getSerial()->sendString(SP_MessageProcessor::createMagnetometerCalibrationDataMessage(paddle->imu->getCalibrationData()));
+    }
 };
 
 
@@ -132,8 +165,8 @@ bool SmartPaddleBLEServer::updateIMU() {
             imuQueue.send(imuData);
             updated = true;
             // Получаем данные ориентации только если IMU доступен
-//            OrientationData orientation = imu->getOrientation();
-//            orientationQueue.send(orientation);
+            OrientationData orientation = imu->getOrientation();
+            orientationQueue.send(orientation);
         }
     }
     // Если IMU недоступен, не отправляем никаких данных в очереди
@@ -219,7 +252,10 @@ class SPServerRTOS{
         }
         const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
         while(1) {
-            paddle->imu->updateOrientation();
+            uint32_t start = millis();
+            if (paddle->connected() && paddle->sendData) {
+                paddle->imu->updateOrientation();
+            }
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }
@@ -238,7 +274,10 @@ class SPServerRTOS{
         }
         const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
         while(1) {
+            uint32_t start = millis();
             paddle->imu->magnetometerUpdate();
+
+//            Serial.printf("Magnetometer Task, Time: %d\n", millis()-start);
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }
@@ -319,7 +358,26 @@ class SPServerRTOS{
             0
         );
 
-    
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::orientationTask,
+            "Orientation",
+            ORIENTATION_STACK_SIZE,
+            paddle,
+            1,
+            &paddle->orientationTaskHandle,
+            0
+        );
+
+        xTaskCreatePinnedToCore(
+            SPServerRTOS::magnetometerTask,
+            "Magnetometer",
+            MAGNETOMETER_STACK_SIZE,
+            paddle,
+            1,
+            &paddle->magnetometerTaskHandle,
+            0
+        );
+        
         // Задачи на ядре 1
         xTaskCreatePinnedToCore(
             SPServerRTOS::bleSendTask,
@@ -403,21 +461,23 @@ void SmartPaddleBLEServer::calibrateLoads(BladeSideType blade_side){
 bool SmartPaddleBLEServer::updateLoads(){
 
     bool updated = false;
-    if (loads[0] && (updated |=loads[0]->isDataReady())){
+    if (loads[0] && (loads[0]->isDataReady())){
         loads[0]->read();
         lastLoadData.forceR = loads[0]->getForce();
         lastLoadData.forceR_raw = loads[0]->getRawForce();
         lastLoadData.timestamp = millis();
+        updated=true;
     }
-    if (loads[1] && (updated |=loads[1]->isDataReady())){
+    if (loads[1] && (loads[1]->isDataReady())){
         loads[1]->read();
         lastLoadData.forceL = loads[1]->getForce();
         lastLoadData.forceL_raw = loads[1]->getRawForce();
         lastLoadData.timestamp = millis();
+        updated=true;
     }
 
-    if (log_load)
-        Serial.printf("Loads: rigth: %d, left: %d\n",  lastLoadData.forceR, lastLoadData.forceL);
+    if (0)
+        Serial.printf("Loads: rigth: %f, left: %f, updated: %s\n",  lastLoadData.forceR, lastLoadData.forceL, updated?"true":"false");
     
     loadsensorQueue.send(lastLoadData);
     return updated;
@@ -553,7 +613,7 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
     loadTrustedDevice();
     // Load blade orientation from EEPROM
     loadBladeOrientation();
-
+    loadSpecs();
     // Initialize BLE
     Serial.println("Device name: " + String(deviceName));
     BLEDevice::init(deviceName);
@@ -613,7 +673,7 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
     
     orientationFrequency = (imu)?imu->getFrequency():0;
     // Start RTOS tasks
-    SPServerRTOS::startTasks(this);
+ //   SPServerRTOS::startTasks(this);
 
 }
 
@@ -935,5 +995,50 @@ bool SmartPaddleBLEServer::loadBladeOrientation(){
     sendPaddleOrientation(1000);
     return true;
 }
+
+void SmartPaddleBLEServer::saveSpecs(){
+    Preferences prefs;
+    prefs.begin(prefsName.c_str(), false);
+    prefs.putString("paddleID", specs.paddleID);
+    prefs.putInt("paddleType", specs.paddleType);
+    prefs.putFloat("length", specs.length);
+    prefs.putFloat("imuDistance", specs.imuDistance);
+    prefs.putFloat("bladeWeight", specs.bladeWeight);
+    prefs.putFloat("bladeCenter", specs.bladeCenter);
+    prefs.putFloat("bladeMomeInert", specs.bladeMomentInertia);
+    prefs.putInt("firmwareVersion", specs.firmwareVersion);
+    prefs.putString("paddleModel", specs.paddleModel);
+    prefs.putBool("hasLeftBlade", specs.hasLeftBlade);
+    prefs.putBool("hasRightBlade", specs.hasRightBlade);
+    prefs.putInt("imuFrequency", specs.imuFrequency);
+    prefs.end();
+}
+
+bool SmartPaddleBLEServer::loadSpecs(){
+    Preferences prefs;
+    if (!prefs.begin(prefsName.c_str(), true)) {
+        return false;
+    }
+//    specs.paddleID = prefs.getString("paddleID", "");
+    specs.paddleType = (PaddleType)prefs.getInt("paddleType", 0);
+    specs.length = prefs.getFloat("length", 0);
+    specs.imuDistance = prefs.getFloat("imuDistance", 0);
+    specs.bladeWeight = prefs.getFloat("bladeWeight", 0);
+    specs.bladeCenter = prefs.getFloat("bladeCenter", 0);
+    specs.bladeMomentInertia = prefs.getFloat("bladeMomeInert", 0);
+    specs.firmwareVersion = prefs.getInt("firmwareVersion", 0);
+    specs.paddleModel = prefs.getString("paddleModel", "");
+    specs.hasLeftBlade = prefs.getBool("hasLeftBlade", false);
+    specs.hasRightBlade = prefs.getBool("hasRightBlade", false);
+    specs.imuFrequency = prefs.getInt("imuFrequency", 0);
+    prefs.end();
+    return true;
+}
+
+void SmartPaddleBLEServer::startTasks() {
+    SPServerRTOS::startTasks(this);
+}
+
+
 
 

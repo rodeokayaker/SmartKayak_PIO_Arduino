@@ -1,7 +1,8 @@
 #include "SmartPaddle.h"
 #include "SmartPaddleServer.h"
 //#include "IMUSensor_GY85.h"
-#include "IMUSensor_GY87.h"
+//#include "IMUSensor_GY87.h"
+#include "IMUSensor_BNO055.h"
 #include "HX711.h"
 #include "Wire.h"
 #include "esp_log.h"
@@ -56,7 +57,7 @@ TaskHandle_t serialTaskHandle = NULL;
 LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
-IMUSensor_GY87 imuSensor("IMU_PADDLE_MAIN", true, INTERRUPT_PIN); 
+IMUSensor_BNO055 imuSensor("IMU_PADDLE_MAIN_BNO055", 0x29, -1, &Serial); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -282,7 +283,6 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_LOG_IMU) == 0)  {
         log_imu = true;
-        imuSensor.setLogLevel(1);
     }
     else if(strcmp(cmd, CMD_LOG_LOAD) == 0)  {
         log_load = true;
@@ -290,8 +290,6 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_LOG_STOP) == 0)  {
         log_imu = false;
         log_load = false;
-        imuSensor.setLogLevel(0);
-
     }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
@@ -364,8 +362,6 @@ void setup() {
     // Инициализация IMU
 
     imuSensor.setInterruptPin(INTERRUPT_PIN);
-    imuSensor.setAutoCalibrateMag(false);
-
     imuSensor.begin();
 
     // Инициализация Весла
@@ -400,6 +396,10 @@ void setup() {
 
     Serial.println("Type 'help' for available commands.\n");        
     
+    setupSerialInterrupt();
+    
+    paddle.begin("SmartPaddle v. 1.2");
+    OffButton.begin();
     
     xTaskCreatePinnedToCore(
         serialCommandTask,
@@ -411,14 +411,10 @@ void setup() {
         1
     );
 
+    paddle.startTasks();
 
-    setupSerialInterrupt();
-    
-    paddle.begin("SmartPaddle v. 1.2");
-    Serial.println("Smart Paddle Ready!");
-    Serial.println("Type 'help' for available commands");
+
     digitalWrite(POWER_PIN, HIGH);   
-    OffButton.begin();
 }
 
 

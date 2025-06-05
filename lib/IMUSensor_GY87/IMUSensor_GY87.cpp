@@ -9,6 +9,8 @@
 #include "IMUSensor_GY87.h"
 #include <Preferences.h>
 #include "CalibrationUtils.h"
+#include "OrientationEstimator.h"
+#include "Calibration.h"
 
 #define ADAPTIVE_GAIN 0.001f
 #define AUTO_CALIB_SAVE_INTERVAL 60000 // one time in 10 minutes if we update data 100HZ
@@ -17,22 +19,19 @@
 IMUSensor_GY87::IMUSensor_GY87( const char* prefsName, bool use_dmp, uint8_t interPin, Stream* logStream)
     : prefsName(prefsName),
       calibValid(false),
-      log_imu(0),
       dmpReady(false),
       dmpValid(false),
       imuFrequency(GY87_IMU_DEFAULT_FREQUENCY),
       logStream(logStream ? logStream : &Serial),
-      autoCalibrateMag(false),
-      autoCalibCount(0),
-      magCalibSampleCount(0),
-      magCalibAvgError(0),
-      config(),
-      fusionFilter(config),
       useDMP(use_dmp),
-      interruptPin(interPin) {
+      interruptPin(interPin),
+      EKF_started(false),
+      magFrequency(GY87_MAG_DEFAULT_FREQUENCY)
+{
 
-    config.magnetic_declination = 0.127f; // ~7.3 градуса для Москвы
-    fusionFilter.setConfig(config);
+      orientationEstimator = new OrientationEstimator(magFrequency);
+      calibrator = new Calibration();
+      
 }
 
 void IMUSensor_GY87::setDefaultCalibration() {
@@ -74,7 +73,7 @@ void IMUSensor_GY87::setDefaultCalibration() {
             gyro_scale = 1.0f / 16.4f;            // 16.4 LSB/(°/s)
             break;
         default:
-            gyro_scale = 0.0;             // ошибка
+            gyro_scale = 1.0f;             // ошибка
     }
 
     for(int i = 0; i < 3; i++) {
@@ -86,6 +85,8 @@ void IMUSensor_GY87::setDefaultCalibration() {
         
         calibData.magOffset[i] = 0;
         calibData.magScale[i] = 1.0f;
+
+        calibData.magSI[i] = 0.0f;
     }
     // Применяем значения по умолчанию к устройствам
     mpu.setXAccelOffset(0);
@@ -95,22 +96,19 @@ void IMUSensor_GY87::setDefaultCalibration() {
     mpu.setYGyroOffset(0);
     mpu.setZGyroOffset(0);
 
-    if(log_imu > 0) {
-        logStream->println("Default calibration values set");
-        logStream->printf("Accel scale: 1/%d LSB/g\n", 8192);
-        logStream->printf("Gyro scale: 1/%0.1f LSB/°/s\n", 65.5f);
-    }
+    EKF_started = false;
+    orientationEstimator->reset();
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
+
+
 }
 
 bool IMUSensor_GY87::begin(uint16_t imuFreq, uint16_t magFreq) {
 
-    imuFrequency = imuFreq;
     magFrequency = magFreq;
-
-    madgwick.begin(imuFrequency); 
-
-//  Если нет дисплея на Wire, то надо увеличить скорость I2C
-//  Раскоментировать эту строку
+    orientationEstimator->setFrequency(magFrequency);
+    EKF_started = false;
+    orientationEstimator->reset();
 
 #ifdef WIRECLOCK400
     Wire.setClock(400000); // 400kHz I2C clock.
@@ -120,35 +118,10 @@ bool IMUSensor_GY87::begin(uint16_t imuFreq, uint16_t magFreq) {
     mpu.reset();
     delay(100);
     mpu.initialize();
-    // Включаем bypass mode для прямого доступа к магнитометру
-    
-    Wire.beginTransmission(0x68);
-    Wire.write(0x6A);
-    Wire.write(0x00);
-    Wire.endTransmission();
-    //Disable Sleep Mode
-    Wire.beginTransmission(0x68);
-    Wire.write(0x6B);
-    Wire.write(0x00);
-    Wire.endTransmission();  
-
-    // Инициализация магнитометра
-    mag.init();
-    mag.setMode(Mode_Continuous, ODR_100Hz, RNG_2G, OSR_512);
-    
-    if(log_imu > 0) {
-        logStream->println("QMC5883L initialized");
-        logStream->println("Mode: Continuous");
-        logStream->println("ODR: 200Hz");
-        logStream->println("Range: 2G");
-        logStream->println("OSR: 512");
-    }
 
     // Проверка подключения
     if (!mpu.testConnection()) {
-        if(log_imu > 0) {
-            logStream->println("MPU6050 connection failed");
-        }
+
         return false;
     }
     
@@ -158,17 +131,6 @@ bool IMUSensor_GY87::begin(uint16_t imuFreq, uint16_t magFreq) {
         mpu.setRate(4);
         mpu.setDLPFMode(MPU6050_DLPF_BW_98);              // фильтр 98Hz
         mpu.setSleepEnabled(false);
-    
-    if(log_imu > 0) {
-        logStream->println("MPU6050 initialized successfully");
-        logStream->printf("Accel range: ±4g\n");
-        logStream->printf("Gyro range: ±500°/s\n");
-        logStream->printf("DLPF bandwidth: 98Hz\n");
-    }
-
-    // Инициализация барометра
-    baro.begin(0);
-    baro.measurement(3); // Высокая точность измерений
     
     // Инициализация DMP
     if(useDMP) {
@@ -187,12 +149,11 @@ bool IMUSensor_GY87::begin(uint16_t imuFreq, uint16_t magFreq) {
         } else {
             Serial.print("DMP Initialization failed. Device status: ");
             Serial.println(devStatus);
-            if (!readCalibrationData()) {
-                setDefaultCalibration();
-            }
+
     //        return false;
         }
     }
+    setDefaultCalibration();
 
     // Загрузка калибровочных данных
     if(readCalibrationData()) {
@@ -202,26 +163,46 @@ bool IMUSensor_GY87::begin(uint16_t imuFreq, uint16_t magFreq) {
         mpu.setXGyroOffset(calibData.gyroOffset[0]);
         mpu.setYGyroOffset(calibData.gyroOffset[1]);
         mpu.setZGyroOffset(calibData.gyroOffset[2]);
-    } else {
-        setDefaultCalibration();
     }
             
 
 
-    // это какой-то странный код для того чтобы было видно QMC5883L вместе с MPU6050
-  //Bypass Mode
 
     if(interruptPin >= 0) {
         Serial.printf("MPU interrupt status: %d\n", mpu.getIntStatus());
     }
 
-    Wire.beginTransmission(0x68);
+        // Включаем bypass mode для прямого доступа к магнитометру
+     Wire.beginTransmission(0x68);
     Wire.write(0x37);  // Регистр INT_PIN_CFG
     Wire.write(0x02);  // Включаем bypass mode
     Wire.endTransmission();
 
-    // Инициализация компаса
+/*       
+    Wire.beginTransmission(0x68);
+    Wire.write(0x6A);
+    Wire.write(0x00);
+    Wire.endTransmission();
+    //Disable Sleep Mode
+    Wire.beginTransmission(0x68);
+    Wire.write(0x6B);
+    Wire.write(0x00);
+    Wire.endTransmission();  
+    */
+
+    // Инициализация магнитометра
     mag.init();
+    mag.setMode(Mode_Continuous, ODR_100Hz, RNG_2G, OSR_512);
+    
+
+
+        // Инициализация барометра
+    baro.begin(0);
+    baro.measurement(3); // Высокая точность измерений
+
+
+
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
 
     
     return true;
@@ -249,10 +230,7 @@ void IMUSensor_GY87::calibrate() {
     getSmoothedReadings(readings2);
     
     if(!isStable(readings1, readings2, 5)) {
-        if(log_imu > 0) {
-            logStream->println("Calibration failed - unstable readings");
-        }
- //       return false;
+        logStream->println("Calibration failed - unstable readings");
     }    
     
     // Сохраняем полученные смещения
@@ -298,7 +276,9 @@ void IMUSensor_GY87::calibrate() {
     // Сохраняем калибровочные данные в энергонезависимую память
     saveCalibrationData();
     calibValid = true;
-    
+    EKF_started = false;
+    orientationEstimator->reset();
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
     logStream->println("\nCalibration complete!");
     logStream->println("Calibration data has been saved");
 }
@@ -465,149 +445,10 @@ void IMUSensor_GY87::initialCalibrateMagnetometer(bool ransac, bool geometric) {
 void IMUSensor_GY87::calibrateCompass() {
     initialCalibrateMagnetometer(false, true);
     saveCalibrationData();
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
+    orientationEstimator->reset();
+    EKF_started = false;
 }
-
-void IMUSensor_GY87::adaptiveCalibrateMagnetometer() {
-    // Берем сырые данные магнитометра
-    float mx_raw = currentData.mag_x;
-    float my_raw = currentData.mag_y;
-    float mz_raw = currentData.mag_z;
-    
-    // Применяем текущую калибровку
-    float mx = (mx_raw - calibData.magOffset[0]) * calibData.magScale[0];
-    float my = (my_raw - calibData.magOffset[1]) * calibData.magScale[1];
-    float mz = (mz_raw - calibData.magOffset[2]) * calibData.magScale[2];
-    
-    // Вычисляем текущую норму вектора
-    float mNorm = sqrt(mx*mx + my*my + mz*mz);
-    if(mNorm < 1e-6f) return;
-
-    // Ожидаемая норма вектора (идеальная сфера имеет радиус 1)
-    const float TARGET_NORM = 1.0f;
-    
-    // Вычисляем ошибку нормы
-    float normError = mNorm - TARGET_NORM;
-    
-    // Нормализованные компоненты для определения направления коррекции
-    float nx = mx / mNorm;
-    float ny = my / mNorm;
-    float nz = mz / mNorm;
-
-    // Уменьшаем коэффициенты коррекции
-    const float BASE_GAIN = 0.05f;  // Уменьшен на порядок
-    const float MAX_ERROR = 0.1f;     // Уменьшен до 10%
-    float adaptiveGain = BASE_GAIN * (fabs(normError) > MAX_ERROR ? MAX_ERROR : fabs(normError));
-
-    // Коэффициенты для разных типов коррекции
-    const float OFFSET_RATIO = 0.7f;
-    const float SCALE_RATIO = 0.3f;   // Уменьшен для стабильности
-
-    // Обновление смещения с учетом масштаба
-    calibData.magOffset[0] += nx * normError * adaptiveGain * OFFSET_RATIO / calibData.magScale[0];
-    calibData.magOffset[1] += ny * normError * adaptiveGain * OFFSET_RATIO / calibData.magScale[1];
-    calibData.magOffset[2] += nz * normError * adaptiveGain * OFFSET_RATIO / calibData.magScale[2];
-
-    // Обновление масштаба (более осторожное)
-    float scaleCorrection = normError * adaptiveGain * SCALE_RATIO;
-    calibData.magScale[0] *= 1.0f - nx * scaleCorrection;
-    calibData.magScale[1] *= 1.0f - ny * scaleCorrection;
-    calibData.magScale[2] *= 1.0f - nz * scaleCorrection;
-
-/*    // Более строгие ограничения на масштабные коэффициенты
-    const float MIN_SCALE = 0.8f;
-    const float MAX_SCALE = 1.2f;
-    for(int i = 0; i < 3; i++) {
-        if(calibData.magScale[i] < MIN_SCALE) calibData.magScale[i] = MIN_SCALE;
-        if(calibData.magScale[i] > MAX_SCALE) calibData.magScale[i] = MAX_SCALE;
-    }
-*/
-    // Накапливаем статистику для оценки качества калибровки
-    
-    magCalibAvgError = (magCalibAvgError * magCalibSampleCount + fabs(normError)) / (magCalibSampleCount + 1);
-    if(magCalibSampleCount < MAG_CALIB_STATS_WINDOW) {
-        magCalibSampleCount++;
-    } else {
-        if(log_imu > 1) {
-            logStream->printf("Mag norm: %.3f, Error: %.3f\n", mNorm, normError);
-            logStream->printf("Scales: %.3f, %.3f, %.3f\n", 
-                calibData.magScale[0], calibData.magScale[1], calibData.magScale[2]);
-            logStream->printf("Offsets: %.3f, %.3f, %.3f\n", 
-                calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
-        }
-        magCalibAvgError = 0;
-        magCalibSampleCount = 0;
-    }
-}
-
-void IMUSensor_GY87::adaptiveCalibrateMagnetometer(float* q) {
-    // Извлекаем направление магнитного поля из кватерниона
-    float bx = 2.0f * (q[1]*q[3] - q[0]*q[2]);
-    float by = 2.0f * (q[0]*q[1] + q[2]*q[3]);
-    float bz = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
-    
-    // Нормализуем ожидаемое направление
-    float bNorm = sqrt(bx*bx + by*by + bz*bz);
-    if(bNorm < 1e-6f) return;
-    bx /= bNorm;
-    by /= bNorm;
-    bz /= bNorm;
-
-    // Текущие измерения (до применения калибровки)
-    float mx_raw = currentData.mag_x;
-    float my_raw = currentData.mag_y;
-    float mz_raw = currentData.mag_z;
-    
-    // Применяем текущую калибровку
-    float mx = (mx_raw - calibData.magOffset[0]) * calibData.magScale[0];
-    float my = (my_raw - calibData.magOffset[1]) * calibData.magScale[1];
-    float mz = (mz_raw - calibData.magOffset[2]) * calibData.magScale[2];
-    
-    // Нормализуем текущие измерения
-    float mNorm = sqrt(mx*mx + my*my + mz*mz);
-    if(mNorm < 1e-6f) return;
-    
-    float mx_norm = mx / mNorm;
-    float my_norm = my / mNorm;
-    float mz_norm = mz / mNorm;
-
-    // Вычисляем ошибку как векторное произведение нормализованных векторов
-    float errX = my_norm*bz - mz_norm*by;
-    float errY = mz_norm*bx - mx_norm*bz;
-    float errZ = mx_norm*by - my_norm*bx;
-    
-    // Вычисляем величину ошибки
-    float errMagnitude = sqrt(errX*errX + errY*errY + errZ*errZ);
-    
-    // Уменьшаем коэффициенты коррекции
-    const float BASE_GAIN = 0.01f;  // Уменьшен на порядок
-    const float MAX_ERROR = 0.1f;     // Уменьшен до 10%
-    float adaptiveGain = BASE_GAIN * (errMagnitude > MAX_ERROR ? MAX_ERROR : errMagnitude);
-
-    const float OFFSET_RATIO = 0.7f;
-    const float SCALE_RATIO = 0.2f;   // Уменьшен для большей стабильности
-
-    // Обновление смещения (используем исходные данные)
-    calibData.magOffset[0] += errX * adaptiveGain * OFFSET_RATIO * mNorm;
-    calibData.magOffset[1] += errY * adaptiveGain * OFFSET_RATIO * mNorm;
-    calibData.magOffset[2] += errZ * adaptiveGain * OFFSET_RATIO * mNorm;
-
-    // Обновление масштаба (более осторожное)
-    float scaleCorrection = adaptiveGain * SCALE_RATIO;
-    calibData.magScale[0] *= 1.0f + errX * scaleCorrection;
-    calibData.magScale[1] *= 1.0f + errY * scaleCorrection;
-    calibData.magScale[2] *= 1.0f + errZ * scaleCorrection;
-
-    // Добавляем статистику для отладки
-
-    if(log_imu > 1 && magCalibSampleCount++ % 100 == 0) {
-        logStream->printf("Mag norm: %.3f, Error: %.3f\n", mNorm, errMagnitude);
-        logStream->printf("Scales: %.3f, %.3f, %.3f\n", 
-            calibData.magScale[0], calibData.magScale[1], calibData.magScale[2]);
-        logStream->printf("Offsets: %.3f, %.3f, %.3f\n", 
-            calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
-    }
-}
-
 
 void IMUSensor_GY87::saveCalibrationData() {
     Preferences prefs;
@@ -615,10 +456,6 @@ void IMUSensor_GY87::saveCalibrationData() {
     
     // Сохраняем структуру калибровочных данных целиком
     prefs.putBytes("calibData", &calibData, sizeof(IMUCalibData));
-    
-    if(log_imu > 0) {
-        logStream->println("Calibration data saved to flash memory");
-    }
     
     prefs.end();
 }
@@ -688,39 +525,18 @@ bool IMUSensor_GY87::readCalibrationData() {
             for(int i = 0; i < 3; i++) {
                 calibData.accelScale[i] = accel_scale;   
                 calibData.gyroScale[i] = gyro_scale;     
-            }
-
-            
-            if(log_imu > 0) {
-                logStream->println("Calibration data loaded from flash memory");
-                logStream->println("Current calibration values:");
-                logStream->printf("Accel offsets: X=%d Y=%d Z=%d\n",
-                    calibData.accelOffset[0],
-                    calibData.accelOffset[1],
-                    calibData.accelOffset[2]);
-                logStream->printf("Gyro offsets: X=%d Y=%d Z=%d\n",
-                    calibData.gyroOffset[0],
-                    calibData.gyroOffset[1],
-                    calibData.gyroOffset[2]);
-                logStream->printf("Mag offsets: X=%.2f Y=%.2f Z=%.2f\n",
-                    calibData.magOffset[0],
-                    calibData.magOffset[1],
-                    calibData.magOffset[2]);
-                logStream->printf("Mag scales: X=%.2f Y=%.2f Z=%.2f\n",
-                    calibData.magScale[0],
-                    calibData.magScale[1],
-                    calibData.magScale[2]);
-            }
+            }            
         }
     }
     
     if(!success) {
-        if(log_imu > 0) {
-            logStream->println("No valid calibration data found, using defaults");
-        }
         setDefaultCalibration();
     }
     prefs.end();
+
+    orientationEstimator->reset();
+    EKF_started = false;
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
 
     return success;
 }
@@ -734,10 +550,11 @@ void IMUSensor_GY87::resetCalibration() {
     prefs.begin(prefsName.c_str(), false);
     prefs.remove("calibData");
     prefs.end();
-    
-    if(log_imu > 0) {
-        logStream->println("Calibration data reset to defaults");
-    }
+
+    orientationEstimator->reset();
+    EKF_started = false;
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
+    logStream->println("Calibration data reset to defaults");
 }
 
 void IMUSensor_GY87::getQuaternion(float* quat) {
@@ -748,6 +565,8 @@ void IMUSensor_GY87::getQuaternion(float* quat) {
 }
 
 IMUSensor_GY87::~IMUSensor_GY87() {
+    delete orientationEstimator;
+    delete calibrator;
 }
 
 IMUData IMUSensor_GY87::readData() {
@@ -772,22 +591,11 @@ IMUData IMUSensor_GY87::readData() {
             mpu.dmpGetAccel(acc, fifoBuffer);
             mpu.dmpGetGyro(gyro, fifoBuffer);
             dmpValid = true;
-//            Serial.printf("Got DMP data\n");
         } else{
             mpu.getMotion6(&acc[0], &acc[1], &acc[2], &gyro[0], &gyro[1], &gyro[2]);
-/*            Serial.printf("DMP is not ready\n");
-    if (mpuIntStatus & 0x01) Serial.println("Data Ready INT");
-    if (mpuIntStatus & 0x02) Serial.println("DMP INT");
-    if (mpuIntStatus & 0x04) Serial.println("PLL Ready INT");
-    if (mpuIntStatus & 0x08) Serial.println("I2C Master INT");
-    if (mpuIntStatus & 0x10) Serial.println("FIFO Overflow INT");
-    if (mpuIntStatus & 0x20) Serial.println("Zero Motion INT");
-    if (mpuIntStatus & 0x40) Serial.println("Motion INT");
-    if (mpuIntStatus & 0x80) Serial.println("Free Fall INT");        */    
         }
     } else {
         mpu.getMotion6(&acc[0], &acc[1], &acc[2], &gyro[0], &gyro[1], &gyro[2]);
-//        Serial.printf("DMP is not used\n");
     }
             
         // Преобразование в физические величины
@@ -798,56 +606,20 @@ IMUData IMUSensor_GY87::readData() {
     currentData.gx = gyro[0]*calibData.gyroScale[0];
     currentData.gy = gyro[1]*calibData.gyroScale[1];
     currentData.gz = gyro[2]*calibData.gyroScale[2];
-/*        Serial.printf("Accel length: %f, gyro length: %f\n", 
-            sqrt(currentData.ax*currentData.ax+ currentData.ay*currentData.ay+ currentData.az*currentData.az),
-            sqrt(currentData.gx*currentData.gx+ currentData.gy*currentData.gy+ currentData.gz*currentData.gz));
-*/            
-        // Чтение магнитометра
+  
+    // Чтение магнитометра
 
     // Чтение и преобразование данных магнитометра
     int mx, my, mz;
+    
     mag.read(&mx, &my, &mz);
     currentData.mag_x = mx;
     currentData.mag_y = my;
     currentData.mag_z = mz;
     
-    // Применяем калибровку к данным магнитометра
-    currentData.mx = (mx - calibData.magOffset[0]) * calibData.magScale[0];
-    currentData.my = (my - calibData.magOffset[1]) * calibData.magScale[1];
-    currentData.mz = (mz - calibData.magOffset[2]) * calibData.magScale[2];
-    
-
-    if(log_imu > 2) {
-        logStream->printf("Raw mag: %d %d %d\n", mx, my, mz);
-        logStream->printf("Calibrated mag: %.2f %.2f %.2f\n", 
-            currentData.mx, currentData.my, currentData.mz);
-    }
-
-    if (log_imu == 1) {
-        float magNorm = sqrt(currentData.mx*currentData.mx + currentData.my*currentData.my + currentData.mz*currentData.mz);
-        logStream->printf("Mag norm: %.2f\n", magNorm);
-    }
-            
-    /*    // Чтение барометра
-        if(baro.read(2)) {
-            currentData.pressure = baro.pressure;
-            currentData.temperature = baro.temperature;
-            currentData.altitude = baro.altitude;
-        }*/
-            
+    calculateCalibratedMagnetometer(&mx, &my, &mz, &currentData.mx, &currentData.my, &currentData.mz);
+         
     currentData.timestamp = millis();
-
-    if(log_imu > 2) {  // Расширенное логирование
-        logStream->printf("Accel: %.3f %.3f %.3f\n", 
-            currentData.ax, currentData.ay, currentData.az);
-        logStream->printf("Gyro: %.3f %.3f %.3f\n", 
-            currentData.gx, currentData.gy, currentData.gz);
-        logStream->printf("Mag: %.3f %.3f %.3f\n", 
-            currentData.mx, currentData.my, currentData.mz);
-        logStream->printf("Q: %.3f %.3f %.3f %.3f\n", 
-            q.w, q.x, q.y, q.z);
-    }
-
     
     return currentData;
 }
@@ -856,40 +628,15 @@ OrientationData IMUSensor_GY87::getOrientation() {
     return currentOrientation;
 }
 
-OrientationData IMUSensor_GY87::updateOrientation() {
-    //    old Implementation of Madgwick filter
-    madgwick.updateIMU(
-        currentData.gx, currentData.gy, currentData.gz,
-        currentData.ax, currentData.ay, currentData.az/*,
-        currentData.mx, currentData.my, currentData.mz*/
-    );
-    
-    madgwick.getQuaternion(&currentOrientation.q0);
-
- /*   SP_Math::Quaternion dmp_q(currentData.q0, currentData.q1, currentData.q2, currentData.q3);
-    SP_Math::Vector mag(currentData.mx, currentData.my, currentData.mz);
-    SP_Math::Vector gyro(currentData.gx, currentData.gy, currentData.gz);
-        
-    SP_Math::Quaternion final_orientation = fusionFilter.update(dmp_q, mag, gyro);
-    
-    // Можно получить информацию о качестве данных
-    float variance = fusionFilter.getMagVariance();
-    float trust = fusionFilter.getMagTrust();
-    
-    // Обновляем данные
-    currentOrientation.q0 = final_orientation[0];
-    currentOrientation.q1 = final_orientation[1];
-    currentOrientation.q2 = final_orientation[2];
-    currentOrientation.q3 = final_orientation[3];*/
-
+OrientationData IMUSensor_GY87::updateOrientation() 
+{
+    Eigen::Quaternionf orientation = orientationEstimator->applyCorrection(Eigen::Quaternionf(currentData.q0, currentData.q1, currentData.q2, currentData.q3));
+    currentOrientation.q0 = orientation.w();
+    currentOrientation.q1 = orientation.x();
+    currentOrientation.q2 = orientation.y();
+    currentOrientation.q3 = orientation.z();
     currentOrientation.timestamp = millis();
-/*    if (!dmpReady) {
-        // Если DMP не готов, возвращаем нулевую ориентацию
-        currentOrientation = {0, 0, 0, 0, millis()};
-        return currentOrientation;
-    }*/
 
-    // Возвращаем последнюю вычисленную ориентацию
     return currentOrientation;
 }
 
@@ -911,12 +658,6 @@ void IMUSensor_GY87::setFrequency(uint16_t frequency) {
 
     mpu.setDLPFMode(dlpf);*/
 
-    madgwick.begin(frequency);
-
-    if(log_imu > 0) {
-        logStream->printf("IMU frequency set to %dHz\n", frequency);
-        logStream->printf("DLPF bandwidth adjusted accordingly\n");
-    }
 }
 
 IMUData IMUSensor_GY87::getData() {
@@ -968,6 +709,10 @@ void IMUSensor_GY87::setCalibrationData(const IMUCalibData data, bool save) {
     if(save) {
         saveCalibrationData();
     }
+    orientationEstimator->reset();
+    EKF_started = false;
+    calibrator->setCalibrationMatrix(calibData.magOffset, calibData.magScale, calibData.magSI);
+
 }
 
 IMUCalibData IMUSensor_GY87::getCalibrationData() {
@@ -1039,19 +784,55 @@ void IMUSensor_GY87::PrintChipsInfo(Stream* stream) {
 }
 
 void IMUSensor_GY87::magnetometerUpdate() {
-    if (autoCalibrateMag) {
-        // Адаптивная калибровка магнитометра по данным фильтра Madgwick
-//        AHRSQuaternion q = madgwick.getQuaternion();
-//        adaptiveCalibrateMagnetometer((float*)&q);
-        adaptiveCalibrateMagnetometer();
-        autoCalibCount++;
 
-        // Периодически сохраняем калибровку в память
-//        if(autoCalibCount % AUTO_CALIB_SAVE_INTERVAL == 0) {
-//            saveCalibrationData();
-//        }
+    if (!dmpValid) {
+        return;
     }
+
+    Eigen::Quaternionf dmp = Eigen::Quaternionf(currentData.q0, currentData.q1, currentData.q2, currentData.q3);
+
+    orientationEstimator->update(dmp, Eigen::Vector3f(currentData.mx, currentData.my, currentData.mz));
+
+    if(EKF_started) {
+        calibrator->updateSmallEKF(Eigen::Vector3f(currentData.mag_x, currentData.mag_y, currentData.mag_z), dmp);
+    } else {
+        calibrator->startSmallEKF(Eigen::Vector3f(currentData.mag_x, currentData.mag_y, currentData.mag_z), dmp);
+        EKF_started = true;
+        mag_call_count = 0;
+    }
+
+    if ((mag_call_count++) % 100 == 0) {
+        calibrator->updateOffsetFromSmallEKF();
+        calibData.magOffset[0] = calibrator->getOffset()[0];
+        calibData.magOffset[1] = calibrator->getOffset()[1];
+        calibData.magOffset[2] = calibrator->getOffset()[2];
+    }
+
     return;
+}
+
+void IMUSensor_GY87::calculateCalibratedMagnetometer(int* mx, int* my, int* mz, float* mx_cal, float* my_cal, float* mz_cal) 
+{
+    // Вычитаем смещения
+    float x = *mx - calibData.magOffset[0];
+    float y = *my - calibData.magOffset[1];
+    float z = *mz - calibData.magOffset[2];
+
+    // Применяем матрицу калибровки
+    // Диагональные элементы из scale
+    float scale_x = calibData.magScale[0];
+    float scale_y = calibData.magScale[1];
+    float scale_z = calibData.magScale[2];
+
+    // Недиагональные элементы из SI (коэффициенты (0,1), (0,2), (1,2))
+    float xy = calibData.magSI[0];  // (0,1)
+    float xz = calibData.magSI[1];  // (0,2)
+    float yz = calibData.magSI[2];  // (1,2)
+
+    // Применяем матричное преобразование
+    *mx_cal = scale_x * x + xy * y + xz * z;
+    *my_cal = xy * x + scale_y * y + yz * z;
+    *mz_cal = xz * x + yz * y + scale_z * z;
 }
 
 

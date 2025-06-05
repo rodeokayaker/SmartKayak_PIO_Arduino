@@ -29,7 +29,7 @@ struct PaddleSpecs {
     PaddleType paddleType;          // Blade type
 
     float length;                   // in meters
-    float imuDistance;
+    float imuDistance;              // расстояние от центра весла до IMU в метрах
 
     float bladeWeight;        // вес лопасти в кг
     float bladeCenter;        // расстояние от конца весла до центра масс лопасти в метрах

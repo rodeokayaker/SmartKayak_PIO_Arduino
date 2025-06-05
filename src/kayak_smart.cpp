@@ -11,31 +11,21 @@
 #include "SD.h"
 #include "AmperikaCRLog.h"
 #include <ESP32Servo.h>
-#include "IMUSensor_GY87.h"
+#include "IMUSensor_BNO055.h"
+//#include "IMUSensor_GY87.h"
 
-#include <hd44780.h>
-#include <hd44780ioClass/hd44780_I2Cexp.h>
-#include "LCD_HD44780_Display.h"
 #include "ChinaMotor.h"
+#include "TFTSmallDisplay.h"
+#include "SP_Types.h"
+#include "LoadCellHX711.h"
+
 
 #define INCLUDE_vTaskDelayUntil 1
 
 // Define pins
-#define BUTTON_PIN    18 // ESP32 pin GPIO18, which connected to power mode changing button
-#define BUTTON1_PIN   17 // ESP32 pin GPIO19, which connected to button 1
-#define MOTOR_PIN     32 // PWM output for motor driver
-//#define REVERSE_PIN   19 // output for reverce direction PIN
-#define LED_PIN       25 // PWM MOTOR Duty LED 
-#define LOW_LED_PIN   23 // Green LED
-#define MED_LED_PIN   25 // Yellow LED
-#define HIGH_LED_PIN  26 // Red LED
-#define BLUE_LED_PIN  27 // Blue LED
-
-#define FSYNC_PIN     33 // FSYNC pin
-#define INTR_PIN      35 // Interrupt pin
-#define DRDY_PIN      34 // Data ready pin
-
-#define IMU_INTERRUPT_PIN INTR_PIN
+//#define IMU_INTERRUPT_PIN IMU_INTA
+#define IMU_INTERRUPT_PIN -1
+#define IMU_I2C_ADDRESS 0x29
 
 // Define PWM output and duty Cycle mode
 #define PWM1_Ch    0
@@ -45,27 +35,10 @@
 #define PWM1_MED   2.0
 #define PWM1_LOW   1.0
 
-#define SD_MISO     12    // GPIO19
-#define SD_MOSI     13    // GPIO23  
-#define SD_SCK      14    // GPIO18
-#define SD_CS       15     // GPIO5 (CS
 
-#define I2C_SDA 21
-#define I2C_SCL 22
+KayakDisplay* kayakDisplay=nullptr;
+ILogInterface* SD_Logger=nullptr;
 
-#define WIRE1_SDA 21
-#define WIRE1_SCL 22
-
-#define LCD_ADDRESS 0x27
-#define LCD_COLUMNS 20
-#define LCD_ROWS 4
-#define LCD2_ADDRESS 0x26
-#define LCD2_COLUMNS 16
-#define LCD2_ROWS 2
-
-// Создаем объекты дисплеев
-hd44780_I2Cexp* lcd1=new hd44780_I2Cexp(LCD_ADDRESS);
-hd44780_I2Cexp* lcd2=nullptr;//new hd44780_I2Cexp(LCD2_ADDRESS);
 
 // Текущее значение
 volatile int currentForce = 1500;
@@ -75,13 +48,16 @@ const int FORCE_THRESHOLD = 20; // минимальный уровень чув�
 const int MAX_FORCE = 100; // максимальное усилие на весле
 int PWM1_DutyCycle = 0;
 
-
+LoadCellHX711 loadCell("LOAD", HX711_DOUT_PIN, HX711_SCK_PIN);
+TaskHandle_t loadCellTaskHandle = NULL;
+int loadCellValue = 0;
 
 // FreeRTOS определения
-#define PROCESS_STACK_SIZE 4096
+#define PROCESS_STACK_SIZE 4192
 #define PROCESS_FREQUENCY 100  // Частота обработки данных в Гц
 #define IMU_FREQUENCY 100
 #define LOG_FREQUENCY 100
+#define LOAD_CELL_FREQUENCY -1
 #define VIZUALIZE_FREQUENCY 30
 
 static bool log_paddle = false;
@@ -102,34 +78,81 @@ struct {
     bool statusValid = false;
 } paddleData;
 
+
+#define N_MODES_SCENARIO 12
+class DebugScenario {
+    private:
+    int *currentForce;
+    bool running;
+    struct modeScenario {
+        int force;
+        uint32_t time;
+    } scenario[N_MODES_SCENARIO];
+    int mode;
+    int nModes;
+    uint32_t nextSwitch;
+    
+    public:
+    DebugScenario(int *currentF): currentForce(currentF), running(false),nModes(N_MODES_SCENARIO), mode(0), nextSwitch(0) 
+    {
+        scenario[0]={1500, 10000};
+        scenario[1]={2000, 10000};
+        scenario[2]={1500, 10000};
+        scenario[3]={1800, 10000};
+        scenario[4]={1500, 10000};
+        scenario[5]={1700, 10000};
+        scenario[6]={1500, 10000};
+        scenario[7]={1600, 10000};
+        scenario[8]={1700, 10000};
+        scenario[9]={1800, 10000};
+        scenario[10]={1900, 10000};
+        scenario[11]={2000, 10000};
+    };
+    void start()
+    {
+        mode = 0;
+        nextSwitch = millis() + scenario[mode].time;
+        running = true;
+        *currentForce = scenario[mode].force;
+    }
+    void stop(){
+        running = false;
+        *currentForce = 1500;
+    }
+    void update(){
+        if (running) {
+            if (millis() >= nextSwitch) {
+                mode = (mode + 1);
+                if (mode >= nModes) {
+                    mode = 0;
+                    stop();
+                    return;
+                }
+                nextSwitch = millis() + scenario[mode].time;
+                *currentForce = scenario[mode].force;
+            }
+        }
+    }
+    bool isRunning() { return running; }
+};
+
+DebugScenario debugScenario((int*)&currentForce);
+
+
 class PowerButton : public ButtonDriver, public IModeSwitch {
 private:
 
-    LEDDriver greenLED;
-    LEDDriver blueLED;
-    LEDDriver redLED;
     MotorPowerMode currentMode;
     bool MotorDebugMode;
 public:
     PowerButton(int pin) : 
         ButtonDriver(pin), 
         currentMode(MOTOR_OFF), 
-        greenLED(LOW_LED_PIN), 
-        blueLED(MED_LED_PIN), 
-        redLED(HIGH_LED_PIN),
+
         MotorDebugMode(false) {}
 
     void begin(){
         ButtonDriver::begin();
-        greenLED.begin();
-        blueLED.begin();
-        redLED.begin();
-        switch(currentMode) {
-            case MOTOR_LOW_POWER: greenLED.on(); blueLED.off(); redLED.off(); break;
-            case MOTOR_MEDIUM_POWER: greenLED.off(); blueLED.on(); redLED.off(); break;
-            case MOTOR_HIGH_POWER: greenLED.off(); blueLED.off(); redLED.on(); break;
-            case MOTOR_OFF: greenLED.off(); blueLED.off(); redLED.off(); break;
-        }
 
     }
 
@@ -142,32 +165,6 @@ public:
             currentForce = newForce;
             changed=true;
         }
-        if (lcd1) {
-            lcd1->setCursor(0, 0);
-            lcd1->print("Motor Debug Mode    ");
-        }
-        
-        if (lcd1) {
-            lcd1->setCursor(0, 1);
-            char buf[21];
-            snprintf(buf, sizeof(buf), "Force: %4d         ", currentForce);
-            lcd1->print(buf);
-        }
-        
-        // Обновление светодиодов
-        if (currentForce == 1500) {
-            greenLED.off();
-            blueLED.on();
-            redLED.off();
-        } else if (currentForce < 1500) {
-            greenLED.on();
-            blueLED.off();
-            redLED.off();
-        } else {
-            greenLED.off();
-            blueLED.off();
-            redLED.on();
-        }
         return changed;
     }
 
@@ -176,22 +173,17 @@ public:
     void onRelease() override;
     void onLongPress() override {
         MotorDebugMode = !MotorDebugMode;
-        if (lcd1) {
-            lcd1->clear();
-        }
         if (MotorDebugMode) {
+            kayakDisplay->switchDebugScreen(true);
             currentForce = 1500;
             debugMotorChandeForce(0);
-        } else {
-            switch(currentMode) {
-                case 3: greenLED.off(); blueLED.off(); redLED.on(); break;
-                case 2: greenLED.off(); blueLED.on(); redLED.off(); break;
-                case 1: greenLED.on(); blueLED.off(); redLED.off(); break;
-                case 0: greenLED.off(); blueLED.off(); redLED.off(); break;
-            }
+            kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
+        }
+        else {
+            kayakDisplay->switchDebugScreen(false);
         }
     }
-    MotorPowerMode getMode() { return currentMode; }
+    MotorPowerMode getMode() { if (MotorDebugMode) return MOTOR_DEBUG; else return currentMode; }
     bool getMotorDebugMode() { return MotorDebugMode; }
     
 };
@@ -203,186 +195,196 @@ void PowerButton::onRelease() {
     }
     if (MotorDebugMode) {
         debugMotorChandeForce(50);
+        kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
         return;
     }
     currentMode = (MotorPowerMode)((((int)currentMode+1) % 4));
-    switch(currentMode) {
-        case 3: greenLED.off(); blueLED.off(); redLED.on(); break;
-        case 2: greenLED.off(); blueLED.on(); redLED.off(); break;
-        case 1: greenLED.on(); blueLED.off(); redLED.off(); break;
-        case 0: greenLED.off(); blueLED.off(); redLED.off(); break;
-    }
+
+
 }
-
-
-
-
 
 // Глобальные объекты
 
 SmartPaddleBLEClient paddle("Paddle_1");
-IMUSensor_GY87 imu("imu_gy87", true, IMU_INTERRUPT_PIN);
+IMUSensor_BNO055 imu_bno055("imu_bno055", IMU_I2C_ADDRESS, -1, &Serial);
+//IMUSensor_GY87 imu_bno055("imu_gy87", true, IMU_INTERRUPT_PIN);
 SmartKayak kayak;
-PowerButton powerButton(BUTTON_PIN);
+PowerButton powerButton(BUTTON1_PIN);
 AmperikaCRLog SDlog(SD_CS, SD_SCK, SD_MISO, SD_MOSI);
-String filename = "/log.csv";
-bool SD_log=false;
-ChinaMotor motor(MOTOR_PIN);
+ChinaMotor motor(MOTOR_PWM);
 
-class Button1: public ButtonDriver {
-    LEDDriver blueLED;
+class LogButton: public ButtonDriver, public ILogSwitch {
+    private:
     BladeSideType side;
+    LogMode logMode;
+    bool logStarted = false;
+
     public:
-    Button1(int pin): ButtonDriver(pin), blueLED(BLUE_LED_PIN), side(RIGHT_BLADE) {}
+    LogButton(int pin): ButtonDriver(pin), 
+        side(BladeSideType::RIGHT_BLADE),
+        logMode(LogMode::LOG_MODE_OFF),
+        logStarted(false) {}
+        
     void begin() {
         ButtonDriver::begin();
-        blueLED.begin();
-        blueLED.off();
     }
+
+    void startNewLog(){
+        switch (logMode) {
+            case LogMode::LOG_MODE_OFF:
+                break;
+            case LogMode::LOG_MODE_PADDLE_MAG:
+                SD_Logger->StartLog("PMAG");
+                break;
+            case LogMode::LOG_MODE_KAYAK_MAG:
+                SD_Logger->StartLog("KMAG");
+                break;
+            case LogMode::LOG_MODE_DEBUG:
+                SD_Logger->StartLog("DBG");
+                break;
+            case LogMode::LOG_MODE_ALL:
+                SD_Logger->StartLog("ALL");
+                break;
+        }    
+    }
+
     void onRelease() override {
         if (isLongPressed()) {
             return;
         }
 
-        if (powerButton.getMotorDebugMode()) {
-            powerButton.debugMotorChandeForce(-50);
+
+        if (logMode != LogMode::LOG_MODE_OFF) {
+            if (!logStarted) {
+                startNewLog();
+            }
+            logStarted = !logStarted;
+            if (!logStarted) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                SD_Logger->StopLog();
+            }
+        }
+    }
+
+    void onLongPress() override {
+        logMode = (LogMode)((((int)logMode+1) % nLogModes));
+        SD_Logger->StopLog();
+        logStarted = false;
+//        vTaskDelay(pdMS_TO_TICKS(10));
+        startNewLog();
+//        kayak.calibratePaddle();
+    }
+
+    LogMode getLogMode() override { return logMode; }
+    bool getLogStarted() override { return logStarted; }
+    void onPress() override {}
+};
+
+LogButton logButton(BUTTON2_PIN);
+
+class DisplayButton: public ButtonDriver {
+    private:
+    bool displayMode;
+    public:
+    DisplayButton(int pin): ButtonDriver(pin), displayMode(false) {}
+    void onRelease() override {
+        if (isLongPressed()) {
             return;
         }
 
-
-        if (SD_log) {
-            if (SDCardReady){
-                SDlog.closeFile();
-            }
-            SD_log=false;
-            blueLED.off();
-        } else {
-            filename = "/log_"+String(millis())+".csv";
-            if (SDCardReady){
-                SDlog.closeFile();
-                SDlog.setFilename(filename.c_str());
-                SDlog.clearFile();
-            }
-            SD_log=true;
-            blueLED.on();
+        Serial.printf("Display button pressed\n");        
+//        String cmd = SP_MessageProcessor::createSendCalibrationDataCommand();
+//        Serial.printf("Command: %s\n", cmd.c_str());
+//        paddle.getSerial()->sendString(cmd);
+        if (powerButton.getMotorDebugMode()) {
+            powerButton.debugMotorChandeForce(-50);
+            kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
+            return;
         }
-
+        Serial.printf("Out of display button pressed\n");
     }
     void onLongPress() override {
-        kayak.calibratePaddle();
-
-        blueLED.Blink(200, 200, 2000, SD_log?LED_MODE::LED_ON:LED_MODE::LED_OFF);
-
-/*        if (SD_log) {
-            if (SDCardReady){
-                SDlog.closeFile();
+        if (powerButton.getMotorDebugMode()) {
+            if (!debugScenario.isRunning()) {
+                debugScenario.start();
+            } else {
+                debugScenario.stop();
             }
-            SD_log=false;
-            blueLED.off();
-        }*/
+        }
+        Serial.printf("Display button long pressed\n");
     }
     void onPress() override {
     }
 };
 
-Button1 button1(BUTTON1_PIN);
+DisplayButton displayButton(BUTTON3_PIN);
+
 
 
 // Задача обработки данных с весла
 void processDataTask(void *pvParameters) {
-
+//    Serial.println("=== PROCESS TASK STARTED ===");
+    
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/PROCESS_FREQUENCY);
-    
+
     while(1) {
-        if (powerButton.getMotorDebugMode()) {
-            motor.runRaw(currentForce);
-        } else {
-            kayak.update();
-        }
+        
+            if (powerButton.getMotorDebugMode()) {
+                debugScenario.update();
+                motor.runRaw(currentForce);
+            } else {
+                kayak.update();
+            }
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
-void imuTask(void *pvParameters) {
+void loadCellTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(1000/IMU_FREQUENCY);
-    IMUData imu_data;
-
-    while(1) {  
-        kayak.updateIMU();
+    #if LOAD_CELL_FREQUENCY > 0
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000/LOAD_CELL_FREQUENCY);
+    #endif
+    int32_t lastCall = 0;
+    while(1) {
+        #if LOAD_CELL_FREQUENCY > 0
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        #else
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        #endif
+        loadCell.read();
+//        Serial.printf("Load cell value: %d dt: %d\n", loadCell.getRawForce(), millis() - lastCall);
+        kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
+        lastCall = millis();
     }
 }
 
 void logTask(void *pvParameters) {
+    Serial.println("=== LOG TASK STARTED ===");
+    
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/LOG_FREQUENCY);
 
+    if (!SD_Logger->Started()) {
+        Serial.println("SD Logger not started, deleting log task");
+        vTaskDelete(NULL);
+        return;
+    }
+
     while(1) {
-
-        if (SD_log&&SDCardReady) {
-            SDlog.openFile();
-            kayak.logState(&SDlog);
-            SDlog.closeFile();
-        }
-
-
-        if (log_paddle) {
-            loadData load;
-            IMUData imu;
-            OrientationData orientation;
-            BladeData blade;
-            PaddleStatus status;
-            if(paddle.receiveLoadData(load)) {
-                paddleData.load = load;
-                paddleData.loadValid = true;
-                if(log_paddle) {
-                    Serial.printf("Load - L: %d, R: %d, ts: %d\n", 
-                            load.forceL, load.forceR, load.timestamp);
+        if (logButton.getLogMode() != LogMode::LOG_MODE_OFF) {
+            if (logButton.getLogStarted()) {
+                if (!SD_Logger->Opened()) {
+                    SD_Logger->Open();
                 }
-            }
-        
-            if(paddle.receiveIMUData(imu)) {
-                paddleData.imu = imu;
-                paddleData.imuValid = true;
-                if(log_paddle) {
-                    uint32_t start_ts = millis();
-                    Serial.printf("Accel: %.4f, %.4f, %.4f Gyro: %.4f, %.4f, %.4f Mag: %.4f, %.4f, %.4f, ts: %d\n",
-                                imu.ax, imu.ay, imu.az,
-                                imu.gx, imu.gy, imu.gz,
-                                imu.mx, imu.my, imu.mz, imu.timestamp);
-
-                    
-                    Serial.printf("DMP: %.4f, %.4f, %.4f, %.4f, ts=%d\n",
-                                imu.q0, imu.q1, imu.q2, imu.q3, imu.timestamp);
-                    uint32_t end_ts = millis();
-                    if (end_ts - start_ts > 8) {
-                        Serial.printf("Print time: %d ms\n", end_ts - start_ts);
-                    }
+                if (logButton.getLogMode() == LogMode::LOG_MODE_DEBUG) {
+                    SD_Logger->printf("%d,%d,%d\n", millis(), loadCell.getRawForce(), currentForce);
+                } else {
+                    loadCellValue = loadCell.getRawForce();
+                    kayak.logCall(SD_Logger, logButton.getLogMode(), &loadCellValue, powerButton.getMotorDebugMode()?(int*)&currentForce:nullptr);
                 }
-            }
-
-            if(paddle.receiveOrientationData(orientation)) {
-                paddleData.orientation = orientation;
-                paddleData.orientationValid = true;
-                if(log_paddle) {
-                    Serial.printf("Madgwick: %.4f, %.4f, %.4f, %.4f, ts: %d\n",
-                                orientation.q0, orientation.q1, 
-                                orientation.q2, orientation.q3, orientation.timestamp);
-                }
-            }
-            
-/*            if(paddle.receiveBladeData(blade)) {
-                paddleData.blade = blade;
-                paddleData.bladeValid = true;
-                if(log_paddle) {
-                    Serial.printf("Blade - Side: %d Force: %.2f\n",
-                                blade.bladeSide, blade.force);
-                }
-            }*/
-            
+            } 
         }
 
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -394,10 +396,7 @@ void vizualizeSerialTask(void *pvParameters) {
     const TickType_t xFrequency = pdMS_TO_TICKS(1000/VIZUALIZE_FREQUENCY);
 
     while(1) {
-        if (SD_log) {
-            kayak.logVizualizeSerial();
-//            kayak.logVizualizeMag();
-        }
+
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -465,8 +464,6 @@ void processCommand(const char* cmd) {
         Serial.printf("Paddle ID: %s\n", specs.paddleID);
         Serial.printf("Blade type: %s\n", 
                      specs.paddleType == TWO_BLADES ? "Double" : "Single");
-        imu.PrintChipsInfo();
-        imu.PrintCalibrationData();
     }
     else if(strcmp(cmd, CMD_PAIR) == 0) {
         Serial.println("Starting pairing mode...");
@@ -476,7 +473,7 @@ void processCommand(const char* cmd) {
         //log_paddle = true;
 //        log_imu = true;
 //        log_load = true;
-        kayak.onLogLevel(SMARTKAYAK_LOG_FORCE);
+//        kayak.onLogLevel(SMARTKAYAK_LOG_FORCE);
         //imu.setLogLevel(1);
         Serial.println("Logging started");
     }
@@ -484,11 +481,11 @@ void processCommand(const char* cmd) {
         //log_paddle = false;
         //log_imu = false;
         //log_load = false;
-        kayak.offLogLevel(SMARTKAYAK_LOG_FORCE);
+        //kayak.offLogLevel(SMARTKAYAK_LOG_FORCE);
         //imu.setLogLevel(0);
         Serial.println("Logging stopped");
     } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
-        imu.calibrate();
+        imu_bno055.calibrate();
     }
     else if(strcmp(cmd, CMD_PADDLE_IMU_CALIBRATE) == 0) {
         paddle.calibrateIMU();
@@ -509,18 +506,13 @@ void processCommand(const char* cmd) {
         paddle.getSerial()->sendString(SP_MessageProcessor::createShutdownCommand());
     }
     else if(strcmp(cmd, CMD_PADDLE_SD_START) == 0) {
-        SDlog.begin(filename.c_str());
-        SDlog.clearFile();
-        SD_log=true;
+
     }
     else if(strcmp(cmd, CMD_PADDLE_SD_STOP) == 0) {
-        SDlog.closeFile();
-        SD_log=false;
+
     }
     else if(strcmp(cmd, CMD_PADDLE_NEXT_FILE) == 0) {
-        filename = "/log_"+String(millis())+".csv";
-        SDlog.setFilename(filename.c_str());
-        SDlog.clearFile();
+
     }
     else if(strcmp(cmd, CMD_PADDLE_SEND_SPECS) == 0) {
         if (paddle.getSerial()) {
@@ -533,7 +525,7 @@ void processCommand(const char* cmd) {
         }
     }
     else if(strcmp(cmd, CMD_MAG_CALIBRATE) == 0) {
-        imu.calibrateCompass();
+        imu_bno055.calibrateCompass();
     }
     else if(strcmp(cmd, CMD_PADDLE_CALIBRATE_BLADE_ANGLE_LEFT) == 0) {
         paddle.calibrateBladeAngle(LEFT_BLADE);
@@ -600,127 +592,112 @@ class PaddleEventHandler: public SP_EventHandler {
 //        Serial.printf("Load Freq:  %.2f\n",                     load_freq);
     }
     void onConnect(SmartPaddle* paddle) override {
-        if (lcd1) {
-            lcd1->clear();
-            lcd1->setCursor(0, 0);
-            lcd1->print("Smart Kayak");
-            lcd1->setCursor(0, 2);
-            lcd1->print("Connected");
-        }
-        if (lcd2) {
-            lcd2->clear();
-            lcd2->setCursor(0, 0);
-            lcd2->print("Smart Kayak");
-            lcd2->setCursor(0, 1);
-            lcd2->print("Connected");
-        }
+        kayakDisplay->paddleConnected(true);
+
     }
 
     void onDisconnect(SmartPaddle* paddle) override {
         Serial.printf("DisconnectedON\n");
-        if (lcd1) {
-            lcd1->clear();
-            lcd1->setCursor(0, 0);
-            lcd1->print("Smart Kayak ver 0.1b");
-            lcd1->setCursor(0, 2);
-            lcd1->print("Waiting for");
-            lcd1->setCursor(0, 3);
-            lcd1->print("connection...");
-        }
-        if (lcd2) {
-            lcd2->clear();
-            lcd2->setCursor(0, 0);
-            lcd2->print("Smart Kayak");
-            lcd2->setCursor(0, 1);
-            lcd2->print("Disconnected");
-        }
+        kayakDisplay->paddleConnected(false);
+
     }
+    
 };
 
 PaddleEventHandler paddleEventHandler;
+TFTSmallDisplay kayakTFTDisplay;
+
+void setMagnitometerCalibration() {
+    float offset[3] = {0, 0, 0};
+    float scale[3] = {1, 1, 1};
+    float SI[3] = {1, 1, 1};
+    IMUCalibData imuCalibrationData = imu_bno055.getCalibrationData();
+    imuCalibrationData.magOffset[0] = -5832.785182;
+    imuCalibrationData.magOffset[1] = -4309.213456;
+    imuCalibrationData.magOffset[2] = -288.716420;
+    imuCalibrationData.magScale[0] = 0.164958;
+    imuCalibrationData.magScale[1] = 0.164547;
+    imuCalibrationData.magScale[2] = 0.173941;
+    imuCalibrationData.magSI[0] = -0.003708;
+    imuCalibrationData.magSI[1] = -0.004617;
+    imuCalibrationData.magSI[2] = 0.002007;
+    imu_bno055.setCalibrationData(imuCalibrationData,true);
+}
+
+static void IRAM_ATTR loadCellDataReady() {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(loadCellTaskHandle, &xHigherPriorityTaskWoken);
+    if (xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR();
+    }
+}
 
 void setup() {
     Serial.begin(115200);
     while (!Serial) delay(10);
-
-    Wire.begin(I2C_SDA, I2C_SCL);
+    
+    // Проверка памяти на каждом этапе
+    Serial.printf("Initial free heap: %d\n", ESP.getFreeHeap());
+    
+    Wire.begin(IMU_SDA, IMU_SCL);
     Wire.setClock(400000);
     // Инициализация дисплеев
-    int status;
-    
-    if (lcd1) {
-    // Инициализация первого дисплея
-        status = lcd1->begin(LCD_COLUMNS, LCD_ROWS);
-        if(status) {
-            Serial.print("LCD 1 initialization failed: ");
-            Serial.println(status);
-        }
-    }
-
-    // Инициализация второго дисплея
-    if (lcd2) {
-        status = lcd2->begin(LCD2_COLUMNS, LCD2_ROWS, LCD2_ADDRESS);
-        if(status) {
-            Serial.print("LCD 2 initialization failed: ");
-            Serial.println(status);
-        }
-    }
-
-    if (lcd1) {
-        lcd1->clear();
-        lcd1->setCursor(0, 0);
-        lcd1->print("Smart Kayak ver 0.1b");
-    }
-    if (lcd2) {
-        lcd2->clear();
-        lcd2->setCursor(0, 0);
-        lcd2->print("Smart Kayak");
-    }
-    if (lcd1) {
-        lcd1->setCursor(0, 2);
-        lcd1->print("Loading...");
-    }
-    
-    delay(1000);
-    if (lcd1) {
-        lcd1->setCursor(0, 3);
-        lcd1->print("motor");
-    }
     motor.begin();
 
-    Wire.begin(I2C_SDA, I2C_SCL);
-    filename = "/log_"+String(millis())+".csv";
-    SDCardReady = SDlog.begin(filename.c_str());
-    SDlog.clearFile();
+    // Инициализация дисплея
 
-    if (lcd1) {
-        lcd1->setCursor(0, 3);
-        lcd1->print("paddle");   
+    kayakDisplay = &kayakTFTDisplay;
+    kayakDisplay->setLogSwitch(&logButton);
+    kayakDisplay->setMotorSwitch(&powerButton);
+    kayakDisplay->setMotorDriver(&motor);
+    kayakDisplay->begin();
+   
+   SDCardReady = SDlog.begin("SD_LOG");
+
+    SD_Logger = &SDlog;
+
+
+    if (loadCell.begin()) {
     }
-    Serial.println("\nKayak Smart System Initializing...");
 
-    // Инициализация BLE клиента
+
+    Serial.println("Starting paddle initialization...");
     paddle.setEventHandler(&paddleEventHandler);
+    
     paddle.begin("SmartKayak 1.0");
-    imu.setFrequency(IMU_FREQUENCY);
-    imu.setInterruptPin(IMU_INTERRUPT_PIN);
-    imu.begin();
-
-//    imu.setAutoCalibrateMag(true);
+    Serial.println("Paddle initialized");
+    
+    Serial.println("Starting IMU initialization...");
+    imu_bno055.setFrequency(IMU_FREQUENCY);
+    imu_bno055.begin();
+    Serial.println("IMU initialized");
+    
+    Serial.println("Starting kayak initialization...");
     kayak.setPaddle(&paddle);
-    kayak.setTextLCD(lcd1, lcd2);
-    DualLCDDisplay dualDisplay(lcd1, lcd2);
-    kayak.setDisplay(&dualDisplay);
-    kayak.setIMU(&imu, IMU_FREQUENCY);
+    kayak.setDisplay(kayakDisplay);
+    kayak.setIMU(&imu_bno055, IMU_FREQUENCY);
     kayak.setModeSwitch(&powerButton);
     kayak.setMotorDriver(&motor);
     kayak.begin();
-    button1.begin();
-    powerButton.begin();
-
-    // Создание задач
+    Serial.println("Kayak initialized");
     
-    xTaskCreatePinnedToCore(
+    Serial.println("Starting buttons initialization...");
+    logButton.begin();
+    powerButton.begin();
+    displayButton.begin();
+    Serial.println("Buttons initialized");
+
+
+
+    Serial.println("Kayak Smart System Ready!");
+    Serial.println("Type 'help' for available commands");
+    Serial.print("Smart Kayak > ");
+    Serial.println("Creating tasks...");
+    
+    Serial.printf("Before task creation: %d\n", ESP.getFreeHeap());
+    
+    // Создание задач
+    BaseType_t result = xTaskCreatePinnedToCore(
         processDataTask,
         "Process",
         PROCESS_STACK_SIZE,
@@ -729,6 +706,7 @@ void setup() {
         NULL,
         1  // Обработка на ядре 2
     );
+
     
     xTaskCreatePinnedToCore(
         serialCommandTask,
@@ -737,7 +715,7 @@ void setup() {
         NULL,
         1,
         NULL,
-        0  // Команды на ядре 1
+        1  // Команды на ядре 1
     );
  
 
@@ -748,39 +726,36 @@ void setup() {
         NULL,
         1,
         NULL,
-        0  
-    );
-
-    xTaskCreatePinnedToCore(
-        imuTask,
-        "IMU",
-        4096,
-        NULL,
-        1,
-        NULL,
-        0  
+        1  
     );
 
     xTaskCreatePinnedToCore(
         vizualizeSerialTask,
         "Vizualize",
-        4096,
+        2048,
         NULL,
         1,
         NULL,
-        0  
+        1  
     );
+        xTaskCreatePinnedToCore(
+            loadCellTask,
+            "LoadCell",
+            2048,
+            NULL,
+            1,
+            &loadCellTaskHandle,
+            1  
+        );        
+    #if LOAD_CELL_FREQUENCY <= 0
+    attachInterrupt(digitalPinToInterrupt(loadCell.getDRDYPin()), loadCellDataReady, FALLING);
+    #endif
 
 
-    Serial.println("Kayak Smart System Ready!");
-    Serial.println("Type 'help' for available commands");
-    Serial.print("Smart Kayak > ");
-    if (lcd1) {
-        lcd1->setCursor(0, 2);
-        lcd1->print("Waiting for");
-        lcd1->setCursor(0, 3);
-        lcd1->print("connection...");
-    }
+    paddle.startTasks();
+    kayak.startTasks();
+    kayakTFTDisplay.startTasks();
+
 }
 
 void loop() {

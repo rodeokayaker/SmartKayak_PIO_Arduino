@@ -9,17 +9,14 @@
 #ifndef IMUSensor_GY87_h
 #define IMUSensor_GY87_h
 
-#include "SmartPaddle.h"
+#include "InterfaceIMU.h"
 #include <Wire.h>
 #include <MPU6050_6Axis_MotionApps20.h>
-//#include <QMC5883LCompass.h>
 #include <MechaQMC5883.h>
 #include <iarduino_Pressure_BMP.h>
-#include <MadgwickAHRS.h>
-#include <MagCorrectionFilter.h>
 
 #define GY87_IMU_DEFAULT_FREQUENCY 100
-#define GY87_MAG_DEFAULT_FREQUENCY 50
+#define GY87_MAG_DEFAULT_FREQUENCY 40
 
 class IMUSensor_GY87 : public IIMU {
 private:
@@ -28,17 +25,17 @@ private:
     MechaQMC5883 mag;           ///< Магнитометр
     
     IMUData currentData;          // Текущие данные с датчиков
-    bool calibValid;              // Флаг валидности калибровки
+    int calibValid;              // Флаг валидности калибровки
     IMUCalibData calibData;       // Калибровочные данные
-    int8_t log_imu;              // Уровень логирования
     Stream* logStream;            // Поток для логирования
     std::string prefsName;         // Имя раздела в Preferences для хранения калибровки
     int16_t imuFrequency;          // Частота обновления IMU
-    Madgwick madgwick;              // Фильтр Мадгвика для вычисления ориентации
     int interruptPin;
     uint32_t autoCalibCount;  ///< Счетчик итераций автокалибровки
     OrientationData currentOrientation; ///< Текущая ориентация
     uint16_t magFrequency;
+    class OrientationEstimator* orientationEstimator;
+    class Calibration* calibrator;
 
     // DMP переменные
     bool dmpReady;
@@ -48,6 +45,7 @@ private:
     uint8_t fifoBuffer[64];
     bool useDMP;
     bool dmpValid;
+    bool EKF_started;
 
     // Переменные ориентации DMP
     Quaternion q;
@@ -57,24 +55,15 @@ private:
     float temperature; // Температура в °C
     float altitude;    // Высота в метрах
 
-    // FusionFilter
-    SP_Filters::DMP_MagFusion fusionFilter;
-    SP_Filters::DMP_MagFusion::Config config;
+    int mag_call_count;
 
-
-// Магнитометр
-    bool autoCalibrateMag;
-    float magCalibAvgError = 0;
-    int magCalibSampleCount = 0;
-    const int MAG_CALIB_STATS_WINDOW = 100;
-    
 
     // Методы калибровки
-    void adaptiveCalibrateMagnetometer(float* q);   
-    void adaptiveCalibrateMagnetometer(); 
     void initialCalibrateMagnetometer(bool ransac = true, bool geometric = true);
     void getSmoothedReadings(int16_t* readings, int samples = 1000);
     bool isStable(int16_t* readings1, int16_t* readings2, int tolerance);
+
+    void calculateCalibratedMagnetometer(int* mx, int* my, int* mz, float* mx_cal, float* my_cal, float* mz_cal);
 
 public:
     IMUSensor_GY87(const char* prefsName, bool use_dmp=true, uint8_t interPin=-1, Stream* logStream = &Serial);
@@ -100,7 +89,6 @@ public:
     void magnetometerUpdate() override;
     
     // Дополнительные методы
-    void setLogLevel(int8_t level) { log_imu = level; }
     float getPressure() { return pressure; }
     float getTemperature() { return temperature; }
     float getAltitude() { return altitude; }
@@ -115,7 +103,6 @@ public:
 
     void setLogStream(Stream* stream = &Serial) override {logStream = stream;};
 
-    void setAutoCalibrateMag(bool enable = true) { autoCalibrateMag = enable; }
     void setCalibrationData(const IMUCalibData data, bool save = false) override;
     IMUCalibData getCalibrationData() override;
 

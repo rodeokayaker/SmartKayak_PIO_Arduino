@@ -19,6 +19,7 @@
 class SP_MessageProcessor {
 private:
     SP_MessageHandler* handler;  ///< Обработчик сообщений
+    static JsonDocument doc;  // Статический документ для переиспользования
 
     // Вспомогательные методы для извлечения параметров
     template<typename T>
@@ -54,6 +55,9 @@ public:
     static String createStartPairCommand();
     static String createShutdownCommand();
     static String createTareLoadsCommand(BladeSideType bladeSide);
+    static String createSendCalibrationDataCommand();
+    static String createSetMagnetometerOffsetCommand(float* offset);
+    static String createSetMagnetometerCalibrationCommand(float* offset, float* scale, float* softIron);
 
     // Данные датчиков
     static String createIMUDataMessage(const IMUData& data);
@@ -62,7 +66,7 @@ public:
     static String createBladeOrientationMessage(const BladeOrientation& orientation);
     static String createSpecsMessage(const PaddleSpecs& specs);
     static String createStatusMessage(const PaddleStatus& status);
-
+    static String createMagnetometerCalibrationDataMessage(const IMUCalibData& calibData);
 
     // Ответы
     static String createSuccessResponse(const char* command, const char* message = "");

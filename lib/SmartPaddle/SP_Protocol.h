@@ -11,6 +11,7 @@ namespace SP_Protocol {
      * @brief Типы сообщений протокола
      */
     namespace MessageType {
+        extern const char* TITLE;
         extern const char* LOG;        ///< Лог сообщение
         extern const char* COMMAND;    ///< Команда
         extern const char* RESPONSE;   ///< Ответ на команду
@@ -19,23 +20,10 @@ namespace SP_Protocol {
     }
 
     /**
-     * @brief Поля JSON
-     */
-    namespace JsonFields {
-        extern const char* TYPE;
-        extern const char* DATA;
-        extern const char* COMMAND;
-        extern const char* PARAMS;
-        extern const char* SUCCESS;
-        extern const char* MESSAGE;
-        extern const char* DATA_TYPE;
-        extern const char* VALUE;
-    }
-
-    /**
      * @brief Команды протокола
      */
     namespace Commands {
+        extern const char* TITLE;
         extern const char* CALIBRATE_COMPASS;      ///< Калибровка компаса
         extern const char* CALIBRATE_LOADS;        ///< Калибровка датчиков нагрузки
         extern const char* CALIBRATE_IMU;          ///< Калибровка IMU
@@ -46,11 +34,14 @@ namespace SP_Protocol {
         extern const char* SET_MAGNETOMETER_CALIBRATION; ///< Калибровка магнитометра
         extern const char* SET_MAGNETOMETER_OFFSET; ///< Калибровка смещения магнитометра
         extern const char* TARE_LOADS;              ///< Калибровка нагрузки
+        extern const char* SET_SPECS;               ///< Установка спецификаций весла
+        extern const char* SEND_CALIBRATION_DATA;   ///< Отправка калибровочных данных
 
         /**
          * @brief Параметры команд
          */
         namespace Params {
+            extern const char* TITLE;
             extern const char* BLADE_SIDE;         ///< Сторона лопасти
             extern const char* OFFSET_X;           ///< X смещение магнитометра
             extern const char* OFFSET_Y;           ///< Y смещение магнитометра
@@ -69,9 +60,11 @@ namespace SP_Protocol {
         /**
          * @brief Сообщения команд
          */
-        namespace Messages {
+        namespace Responses {
+            extern const char* TITLE;
             extern const char* SUCCESS;
             extern const char* ERROR;
+            extern const char* MESSAGE;
         }
     }
 
@@ -79,6 +72,8 @@ namespace SP_Protocol {
      * @brief Типы данных протокола
      */
     namespace DataTypes {
+        extern const char* TITLE;
+        extern const char* VALUE;
         extern const char* SPECS;                ///< Спецификации
         extern const char* IMU;                   ///< Данные IMU
         extern const char* LOAD;                  ///< Данные нагрузки
@@ -108,7 +103,7 @@ namespace SP_Protocol {
          * @brief Поля для данных ориентации лопасти
          */
         namespace BladeOrientation {
-            extern const char* Y_AXIS_DIRECTION;
+             extern const char* Y_AXIS_DIRECTION;
             extern const char* RIGHT_BLADE_ANGLE;
             extern const char* LEFT_BLADE_ANGLE;
             extern const char* RIGHT_BLADE_VECTOR_X;
@@ -207,6 +202,7 @@ namespace SP_Protocol {
      * @brief Статусы
      */
     namespace Status {
+        extern const char* TITLE;
         extern const char* DEVICE_ID;
         extern const char* FIRMWARE_VERSION;
         extern const char* HARDWARE_VERSION;
@@ -219,6 +215,13 @@ namespace SP_Protocol {
         extern const char* FILTER_ORDER;
         extern const char* BLADE_SIDE;
         extern const char* CALIBRATION_STATUS;
+    }
+
+    /**
+     * @brief Поля для логирования
+     */
+    namespace LogMessages {
+        extern const char* MESSAGE;
     }
 }
 

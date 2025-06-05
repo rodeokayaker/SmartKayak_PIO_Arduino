@@ -63,6 +63,7 @@ bool LoadCellHX711::readCalibrationData() {
 
 float LoadCellHX711::getForce() {
     float force = calibData.calibrationFactor*(float)(lastReadData-calibData.offset);
+//    Serial.printf("Force: %f = %f * (%d - %d)\n", force, calibData.calibrationFactor, lastReadData, calibData.offset);
     return force;
 }
 

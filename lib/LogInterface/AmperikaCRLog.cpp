@@ -1,44 +1,66 @@
-#ifdef USE_SD_LOG
+//#ifdef USE_SD_LOG
 #include "AmperikaCRLog.h"
 #include <SPI.h>
 #include <SD.h>
+#include <Preferences.h>
 
 AmperikaCRLog::AmperikaCRLog(uint8_t cs_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t mosi_pin):
     cs_pin(cs_pin), sck_pin(sck_pin), miso_pin(miso_pin), mosi_pin(mosi_pin),
-    fileOpened(false)
+    fileOpened(false), started(false)
 {
 }
 
-bool AmperikaCRLog::begin(const char* filename) {
-    if (filename) {
-        setFilename(filename);
-    }
+bool AmperikaCRLog::begin(const char* pref_name) {
+
    // Настройка пинов
     pinMode(cs_pin, OUTPUT);
     digitalWrite(cs_pin, HIGH); // Отключаем карту по умолчанию
     Serial.println("SD Card initialization started");
-
     SPISettings spiSettings(10000000, MSBFIRST, SPI_MODE0); // 10MHz, стандартный режим
-
-    Serial.println("SPI initialization started");
-    // Инициализация SPI для SD карты
     SPI.begin(sck_pin, miso_pin, mosi_pin);
     Serial.println("SPI initialization finished");
-    Serial.println("SPI initialization finished");
-
+    delay(100);
+    
 //    SPI.beginTransaction(spiSettings);
-    Serial.println("SPI transaction started");
+//    Serial.println("SPI transaction started");
+//    delay(100);
     // Инициализация SD карты
     if (!SD.begin(cs_pin)) {
         Serial.println("SD Card initialization failed!");
         return false;
     }
     Serial.println("SD Card initialized successfully");
+    started = true;
+    if (!pref_name) {
+        dir_name="/log";
+    } else {
+        Preferences prefs;
+        prefs.begin(pref_name, false);
+        dir_name = prefs.getString("home_log_dir", "/log");
+        Serial.printf("Home log dir: %s\n", dir_name.c_str());
+        createDir(dir_name.c_str());
+        int dir_number = prefs.getInt("log_dir_number", 0);
+        dir_name=dir_name+"/"+String(dir_number);
+        prefs.putInt("log_dir_number", dir_number+1);
+        prefs.end();
+    }
+    createDir(dir_name.c_str());
+    filename = dir_name+"/"+String(millis())+".csv";
     return true;
 }
 
 void AmperikaCRLog::setFilename(const char* filename) {
-    if (filename) this->filename = filename;
+    if (filename) {
+        this->filename = filename;
+        Serial.printf("Log file: %s\n", filename);
+        if (fileOpened){
+            dataFile.close();
+            dataFile = SD.open(filename, FILE_APPEND);
+            if (!dataFile) {
+                fileOpened = false;
+            }
+        }
+    }
 }
 
 bool AmperikaCRLog::openFile() {
@@ -113,12 +135,7 @@ size_t AmperikaCRLog::write(const uint8_t* buffer, size_t bufferSize) {
 
 void AmperikaCRLog::flush() {
     if (fileOpened) { 
-        dataFile.write('\n');
         dataFile.flush(); 
-    } else {
-        dataFile=SD.open(filename, FILE_APPEND);
-        dataFile.write('\n');
-        dataFile.close();
     }
 }
 
@@ -148,8 +165,35 @@ void AmperikaCRLog::logOrientation(const OrientationData& orientation){
     );
 }
 
+void AmperikaCRLog::createDir(const char* dir){
+    if (!SD.exists(dir)) {
+        SD.mkdir(dir);
+    }
+}
 
-#endif
+void AmperikaCRLog::newFile(const char* suffix){
+    setFilename((dir_name+"/"+String(millis())+"_"+String(suffix)+".csv").c_str());
+}
+
+bool AmperikaCRLog::StartLog(const char* logName){
+    closeFile();
+    newFile(logName);
+//    openFile();
+    return true;
+}
+
+bool AmperikaCRLog::StopLog(){
+    closeFile();
+    newFile("NONE");
+    return true;
+}
+
+bool AmperikaCRLog::Started(){
+    return started;
+}
+
+
+//#endif
 
 
 

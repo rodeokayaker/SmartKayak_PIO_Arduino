@@ -68,6 +68,7 @@ private:
     TaskHandle_t loadCellTaskHandle;
     TaskHandle_t imuTaskHandle;
     TaskHandle_t orientationTaskHandle;
+    TaskHandle_t magnetometerTaskHandle;
 
     uint16_t bleSendFrequency;
     uint16_t bleReceiveFrequency;
@@ -134,6 +135,9 @@ public:
     };
 
     void clearTrustedDevice();
+    void saveSpecs();
+    bool loadSpecs();
+    void startTasks();
 
 
 

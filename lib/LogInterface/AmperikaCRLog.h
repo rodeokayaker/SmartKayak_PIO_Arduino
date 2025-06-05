@@ -9,11 +9,15 @@ class AmperikaCRLog : public ILogInterface{
     File dataFile;
     String filename;
     bool fileOpened;
+    String pref_name_str;
+    String dir_name;
 
     uint8_t cs_pin;    // CS пин
     uint8_t sck_pin;  // SCK пин
     uint8_t miso_pin; // MISO пин
     uint8_t mosi_pin; // MOSI пин
+
+    bool started;
 
     private:
 
@@ -25,8 +29,11 @@ class AmperikaCRLog : public ILogInterface{
     bool openFile();
     bool closeFile();
     bool clearFile();
-    void setFilename(const char* filename);
-
+    bool Started() override;
+    void setFilename(const char* pref_name);
+    void newFile(const char* suffix);
+    bool StartLog(const char* logName="LOG") override;
+    bool StopLog() override;
     void logQuaternion(const float* q) override;
     void logLoads(const loadData& loads) override;
     void logIMU(const IMUData& imu) override;
@@ -39,7 +46,10 @@ class AmperikaCRLog : public ILogInterface{
     virtual size_t write(uint8_t byte) override;
     virtual size_t write(const uint8_t* buffer, size_t bufferSize) override;
     virtual void flush() override;
-
+    void createDir(const char* dir);
+    virtual bool Opened() override {return fileOpened;};
+    virtual bool Open() override {return openFile();};
+    virtual bool Close() override {return closeFile();};
 };
 
 #endif
