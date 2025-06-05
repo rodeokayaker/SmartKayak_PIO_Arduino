@@ -191,16 +191,18 @@ void TFTSmallDisplay::showOrientationScreen() {
         }
 
                 // Отображение значений loadcell
-        tft.fillRect(0, 85, 50, 15, TFT_BLACK);  // Очищаем область для loadcell
-        tft.fillRect(110, 85, 50, 15, TFT_BLACK);  // Очищаем область для loadcell
+        tft.fillRect(0, 75, 50, 25, TFT_BLACK);  // Очищаем область для loadcell
+        tft.fillRect(110, 75, 50, 25, TFT_BLACK);  // Очищаем область для loadcell
 
         tft.setTextFont(1);
         tft.setTextColor(TFT_CYAN);
         
         // Левый loadcell
+        tft.drawString(String((int)currentData.leftTare), 5, 80);
         tft.drawString(String((int)currentData.leftForce), 5, 90);
         
         // Правый loadcell  
+        tft.drawString(String((int)currentData.rightTare), 115, 80);
         tft.drawString(String((int)currentData.rightForce), 115, 90);
 
 

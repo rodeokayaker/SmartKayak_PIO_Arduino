@@ -179,7 +179,7 @@ BladeSideType getLowerBladeSide(const SP_Math::Quaternion& paddleQ, int Y_axis_s
     SP_Math::Vector paddleYAxis(0, 1, 0);
     SP_Math::Vector globalYAxis = paddleQ.rotate(paddleYAxis);
 
-    if (globalYAxis.z() * Y_axis_sign > 0) {
+    if (globalYAxis.z() * Y_axis_sign < 0) {
         return BladeSideType::LEFT_BLADE;
     } else {
         return BladeSideType::RIGHT_BLADE;
@@ -241,6 +241,8 @@ void SmartKayak::update() {
         paddle->getIMUData(),
         paddle->getBladeAngles()
     );
+
+ //   Serial.printf("%s, %d, %f, %f\n", bladeSide == BladeSideType::RIGHT_BLADE ? "Right" : "Left", paddle->getBladeAngles().YAxisDirection, paddle->getBladeAngles().leftBladeAngle, paddle->getBladeAngles().rightBladeAngle);
     
     // Получаем откалиброванное значение силы с учетом гравитации
     float bladeForce = loadCellCalibrator.getCalibratedForce(

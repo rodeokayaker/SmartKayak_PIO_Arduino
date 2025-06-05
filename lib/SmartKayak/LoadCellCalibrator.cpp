@@ -20,6 +20,10 @@ void LoadCellCalibrator::setPaddleParameters(float length, float imuDist, float 
 float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
                                                  const BladeOrientation& bladeOrientation,
                                                  bool isRightBlade) const {
+    // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ
+//    return 0.0f;
+    
+    // ИСХОДНЫЙ КОД:
     float leverArm = isRightBlade ? 
         (paddleLength/2 - imuDistance - bladeCenter) : 
         (-paddleLength/2 - imuDistance + bladeCenter);
@@ -73,11 +77,16 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
         sqrt(leverArm * leverArm + bladeNormal[1] * bladeNormal[1]);
 
     return totalForce * projectionFactor;
+    
 }
 
 float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
                                                   const BladeOrientation& bladeOrientation,
                                                   bool isRightBlade) const {
+    // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ
+//    return 0.0f;
+    
+    // ИСХОДНЫЙ КОД:
     // Гироскопический момент возникает при пересечении осей вращения
     float angularVelocity[3] = {imuData.gx, imuData.gy, imuData.gz};
     
@@ -96,6 +105,7 @@ float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
         (-paddleLength/2 - imuDistance + bladeCenter);
         
     return gyroscopicMoment / leverArm;
+    
 }
 
 void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double rightForce,
