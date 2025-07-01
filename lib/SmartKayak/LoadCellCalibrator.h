@@ -38,10 +38,10 @@ private:
                                   bool isRightBlade) const;
 
 public:
-    LoadCellCalibrator(float paddleLength = 2.0f, 
+    LoadCellCalibrator(float paddleLength = 2.2f, 
                       float imuDistance = 0.0f,
-                      float bladeWeight = 0.25f, 
-                      float bladeCenter = 0.15f,
+                      float bladeWeight = 0.3f, 
+                      float bladeCenter = 0.20f,
                       float bladeMomentInertia = 0.01f);
     
     void setPaddleParameters(float length, float imuDist, float weight, float center, float momentInertia);

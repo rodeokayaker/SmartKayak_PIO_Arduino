@@ -34,9 +34,9 @@ void SetPaddleSpecs(SmartPaddleBLEClient* paddle){
 
     specs.paddleType = PaddleType::TWO_BLADES;
     specs.length = 2.2f;
-    specs.imuDistance = 0.02f;
+    specs.imuDistance = 0.00f;
     specs.bladeWeight = 0.3f;
-    specs.bladeCenter = 0.22f;
+    specs.bladeCenter = 0.20f;
     specs.bladeMomentInertia = 0.01;
 
     specs.firmwareVersion = 1.1;
@@ -72,11 +72,13 @@ class SPClient_MessageHandler: public SP_MessageHandler{
         Serial.printf("Firmware version: %d\n", paddle->specs.firmwareVersion);
 
         Serial.printf("Paddle model: %s\n", paddle->specs.paddleModel);
-        Serial.printf("Length: %d\n", paddle->specs.length);
+        Serial.printf("Length: %f\n", paddle->specs.length);
         Serial.printf("Paddle type: %d\n", paddle->specs.paddleType);
         Serial.printf("Has left blade: %d\n", paddle->specs.hasLeftBlade);
         Serial.printf("Has right blade: %d\n", paddle->specs.hasRightBlade);
         Serial.printf("IMU distance: %f\n", paddle->specs.imuDistance);
+
+
     }
 
     virtual void onBladeOrientationData(SP_Data* data, const BladeOrientation& bladeOrientation) override{
@@ -85,6 +87,7 @@ class SPClient_MessageHandler: public SP_MessageHandler{
         Serial.printf("Y axis direction: %d\n", paddle->bladeOrientation.YAxisDirection);
         Serial.printf("Right blade angle: %f\n", paddle->bladeOrientation.rightBladeAngle);
         Serial.printf("Left blade angle: %f\n", paddle->bladeOrientation.leftBladeAngle);
+//        SetPaddleSpecs(paddle);
     }
 
     virtual void onStatus(SP_StatusMessage* status) override{

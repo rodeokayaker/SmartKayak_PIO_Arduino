@@ -2,75 +2,128 @@
 
 
 ChinaMotor::ChinaMotor(int pin): 
-    currentForce(0),
+    currentForce(STOP_SIGNAL),
     motor_pin(pin),
      motor_idle_start_time(0),
      force_change_time(0),
      stop_time(0)
+
 {
+
+    
 }
 
 void ChinaMotor::begin() {
   
         // Initialize and arm the MOTOR
         servo.attach(motor_pin);
-        servo.writeMicroseconds(1500); // send "stop" signal to ESC. Also necessary to arm the ESC.
+        servo.writeMicroseconds(STOP_SIGNAL); // send "stop" signal to ESC. Also necessary to arm the ESC.
         delay(3000); // delay to allow the ESC to recognize the stopped signal.
           
         Serial.printf("ChinaMotor begin\n");
 }
 
-void ChinaMotor::setForce(int speed) {
-        if (speed == 0 && currentForce == 0) {
+int ChinaMotor::getSignalFromForce(int desired_thrust_gr) {
+
+    // Проверка входных данных - отрицательная тяга не поддерживается
+    if (desired_thrust_gr < 0) {
+        Serial.println("⚠️ Внимание: Отрицательная тяга (реверс) не поддерживается.");
+        Serial.println("   Модель работает только для прямого хода (0-7.71 кг)");
+        return STOP_SIGNAL;  // Остановка
+    }
+    
+    // Мертвая зона: тяга ≤ 0 кг
+
+
+
+    if (desired_thrust_gr == 0) {
+        return STOP_SIGNAL;  // Стандартное значение остановки
+    }
+    
+ /*   // Зона насыщения: тяга ≥ максимальной
+    if (desired_thrust_gr >= MAX_THRUST) {
+        return FULL_FORWARD_SIGNAL;  // Максимальный сигнал
+    }*/
+    
+    // Рабочая зона: линейная зависимость
+    // Обратная формула: M = (INTERCEPT - desired_thrust_kg / SCALE) / (-SLOPE)
+    float motor_signal = (INTERCEPT - (float)desired_thrust_gr / SCALE) / (-SLOPE);
+    
+    // Округляем до целого и ограничиваем диапазон
+    int result = (int)round(motor_signal);
+//    result = max((int)(BREAKPOINT_1) + 1, min(result, (int)BREAKPOINT_2));
+    result = max(STOP_SIGNAL, min(result, FULL_FORWARD_SIGNAL));    // TODO: remove this
+    return result;
+}
+
+void ChinaMotor::setThrustKg(int desired_thrust_gr) {
+    int motor_signal = getSignalFromForce(desired_thrust_gr);
+    servo.writeMicroseconds(motor_signal);
+    Serial.printf("Установлена тяга: %.2f гр, сигнал мотора: %d\n", desired_thrust_gr, motor_signal);
+}
+
+void ChinaMotor::setForce(int force) {
+        if (force == 0 && currentForce == STOP_SIGNAL) {
             return;
         }
-        if ((currentForce >0 && speed<0) || (currentForce <0 && speed>0)) {
+
+        if (millis() - motor_idle_start_time < IDLE_TIME) {
+            // keep motor idle for IDLE_TIME milliseconds
+            servo.writeMicroseconds(STOP_SIGNAL);
+            stop_time = millis();
+            force_change_time = millis();
+            currentForce = STOP_SIGNAL;
+            return;
+        }
+        if ((currentForce >STOP_SIGNAL && force<0) || (currentForce <STOP_SIGNAL && force>0)) {
             // if force is changing direction, start idle time
             //Serial.printf("Changing direction, starting idle time\n");
             motor_idle_start_time = millis();
-            servo.writeMicroseconds(1500);
+            servo.writeMicroseconds(STOP_SIGNAL);
             stop_time = millis();
             force_change_time = millis();
-            currentForce = 0;
-            return;
-        }
-        if (millis() - motor_idle_start_time < IDLE_TIME) {
-            // keep motor idle for IDLE_TIME milliseconds
-            servo.writeMicroseconds(1500);
-            stop_time = millis();
-            force_change_time = millis();
-            currentForce = 0;
+            currentForce = STOP_SIGNAL;
             return;
         }
 
-
-        int forceApprox = 0;
+        int forceApprox = STOP_SIGNAL;
         if (stop_time>millis()) {
-            forceApprox = (int)((float)currentForce*(float)(stop_time-millis())/(float)(stop_time-force_change_time));
+            forceApprox = STOP_SIGNAL+(int)((float)(currentForce-STOP_SIGNAL)*(float)(stop_time-millis())/(float)(stop_time-force_change_time));
         }
-        if (speed>0) {
-            currentForce = max(forceApprox, speed);
+        int signal;
+        if (force>0) {
+            signal = getSignalFromForce(force);
         }
-        if (speed<0) {
-            currentForce = min(forceApprox, speed);
+        if (force<0) {
+            signal = STOP_SIGNAL*2-getSignalFromForce(-force);
         }
-        if (speed==0) {
-            currentForce = forceApprox;
+        
+        if (force>0) {
+            signal = max(forceApprox, signal);
         }
-        if (currentForce==speed) {
+        if (force<0) {
+            signal = min(forceApprox, signal);
+        }
+        if (force==0) {
+            signal = forceApprox;
+        }
+
+        if (signal!=forceApprox) {
             stop_time = millis()+STOP_TIME;
         }
-//        Serial.printf("currentForce: %d, speed: %d, forceApprox: %d\n", currentForce, speed, forceApprox);
+        currentForce = signal;
+
         force_change_time = millis();
-//        Serial.printf("ChinaMotor setForce: %d\n", speed);
-        int PWM1_DutyCycle = map(currentForce, -1000, 1000, 1000, 2000);
-        if (PWM1_DutyCycle < 1000) {
-            PWM1_DutyCycle = 1000;
+
+        if (currentForce<FULL_REVERSE_SIGNAL) {
+            currentForce = FULL_REVERSE_SIGNAL;
         }
-        if (PWM1_DutyCycle > 2000) {
-            PWM1_DutyCycle = 2000;
+        if (currentForce>FULL_FORWARD_SIGNAL) {
+            currentForce = FULL_FORWARD_SIGNAL;
         }
-        servo.writeMicroseconds(PWM1_DutyCycle);
+        
+
+        servo.writeMicroseconds(currentForce);
 }
 
 void ChinaMotor::runRaw(int speed) {
@@ -78,8 +131,8 @@ void ChinaMotor::runRaw(int speed) {
 }
 
 bool ChinaMotor::stop() {
-    currentForce = 0;
-    servo.writeMicroseconds(1500);
+    currentForce = STOP_SIGNAL;
+    servo.writeMicroseconds(STOP_SIGNAL);
     stop_time = millis();
     force_change_time = millis();
     return true;

@@ -122,13 +122,9 @@ void TFTSmallDisplay::showOrientationScreen() {
         float bladeRotation = currentData.bladeRotationAngle;
         bool isRightBlade = currentData.isRightBlade;
         
-        // Проверяем, изменились ли углы
-        bool anglesChanged = (shaftRotation != lastData.shaftRotationAngle) ||
-                            (shaftTilt != lastData.shaftTiltAngle) ||
-                            (bladeRotation != lastData.bladeRotationAngle) ||
-                            (isRightBlade != lastData.isRightBlade);
+
         
-        if (anglesChanged) {
+        if (bladeRotation != lastData.bladeRotationAngle) {
             // Стираем старое положение весла
             if (!firstShow && (lastData.shaftRotationAngle != 0 || lastData.shaftTiltAngle != 0)) {
                 // Стираем старую линию и точку
@@ -150,11 +146,11 @@ void TFTSmallDisplay::showOrientationScreen() {
             
             // Определяем цвет весла в зависимости от активной стороны
             uint16_t paddleColor = TFT_GREEN;
-            if (isRightBlade) {
+/*            if (isRightBlade) {
                 paddleColor = TFT_RED;    // Правая сторона
             } else {
                 paddleColor = TFT_BLUE;   // Левая сторона  
-            }
+            }*/
             
             // Рисуем новую линию весла и точку
             tft.drawLine(paddleStartX, paddleStartY, paddleEndX, paddleEndY, paddleColor);
@@ -175,19 +171,12 @@ void TFTSmallDisplay::showOrientationScreen() {
             tft.drawString("Tilt: " + String((int)shaftTilt) + "", 85, 106);
         }
         
-        // Обновляем направление только если изменилось
-        if (((int)shaftRotation > 10) != ((int)lastData.shaftRotationAngle > 10) ||
-            ((int)shaftRotation < -10) != ((int)lastData.shaftRotationAngle < -10)) {
-            
-            // Стираем старое направление
-            tft.fillRect(centerX - 30, workTop + workHeight - 20, 60, 10, TFT_BLACK);
-            
-            // Показываем новое направление
-            if (abs((int)shaftRotation) > 10) {
-                String direction = (shaftRotation > 0) ? "RIGHT" : "LEFT";
-                tft.setTextColor(TFT_YELLOW);
-                tft.drawString(direction, centerX - 20, workTop + workHeight - 15);
-            }
+
+        if ((lastData.isRightBlade != isRightBlade)) {
+            tft.fillRect(centerX - 30, workTop + workHeight - 20, 70, 12, TFT_BLACK);
+            String direction = (isRightBlade) ? "RIGHT" : "LEFT";
+            tft.setTextColor(TFT_YELLOW);
+            tft.drawString(direction, centerX - 20, workTop + workHeight - 15);
         }
 
                 // Отображение значений loadcell

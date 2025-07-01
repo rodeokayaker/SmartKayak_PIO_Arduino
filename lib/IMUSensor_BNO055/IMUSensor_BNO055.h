@@ -35,7 +35,7 @@ private:
     bool sensorReady;             // Готовность сенсора
     uint8_t i2cAddress;           // I2C адрес
     bool calibrationSaved;        // Флаг сохранения калибровки
-    uint8_t lastSavedCalibrationTime;    // Время последнего сохранения калибровки
+    uint32_t lastSavedCalibrationTime;    // Время последнего сохранения калибровки
 
     // Калибровочные статусы BNO055
     uint8_t system_cal, gyro_cal, accel_cal, mag_cal;
@@ -59,8 +59,9 @@ public:
                      int32_t sensorID = -1, Stream* logStream = &Serial);
     
     // Реализация интерфейса IIMU
-    bool begin(uint16_t imuFreq = BNO055_IMU_DEFAULT_FREQUENCY, 
-               uint16_t magFreq = BNO055_MAG_DEFAULT_FREQUENCY);
+    bool begin(uint16_t imuFreq, 
+               uint16_t magFreq);
+    virtual void begin() override { begin(BNO055_IMU_DEFAULT_FREQUENCY, BNO055_MAG_DEFAULT_FREQUENCY); };
     void calibrate() override;                    // Заглушка для BNO055
     void calibrateCompass() override;             // Заглушка для BNO055
     IMUData readData() override;

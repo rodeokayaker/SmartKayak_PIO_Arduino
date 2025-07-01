@@ -123,7 +123,7 @@ IMUData IMUSensor_BNO055::readData() {
     if (!sensorReady) {
         return currentData;
     }
-    
+//    Serial.println("readData");
     // Получение кватерниона
     imu::Quaternion quat = bno.getQuat();
     currentData.q0 = quat.w();
@@ -247,7 +247,7 @@ float IMUSensor_BNO055::getTemperature() {
 }
 
 void IMUSensor_BNO055::checkAndSaveCalibration() {
-    if (calibrationSaved&&(BNO055_CALIBRATION_SAVE_INTERVAL<0||(millis()-lastSavedCalibrationTime<BNO055_CALIBRATION_SAVE_INTERVAL)))
+    if (calibrationSaved&&((BNO055_CALIBRATION_SAVE_INTERVAL<0)||(millis()-lastSavedCalibrationTime<BNO055_CALIBRATION_SAVE_INTERVAL)))
     { 
         return; // Уже сохранена
     }
@@ -256,10 +256,12 @@ void IMUSensor_BNO055::checkAndSaveCalibration() {
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
   bno.getCalibration(&system, &gyro, &accel, &mag);
-  lastSavedCalibrationTime = millis();
+
+//  Serial.printf("Calibration status: System=%d, Gyro=%d, Accel=%d, Mag=%d\n", system, gyro, accel, mag);
+
 
   // Вывод статуса калибровки
-  Serial.print("Статус калибровки: Сис=");
+/*  Serial.print("Статус калибровки: Сис=");
   Serial.print(system, DEC);
   Serial.print(" Гиро=");
   Serial.print(gyro, DEC);
@@ -267,11 +269,14 @@ void IMUSensor_BNO055::checkAndSaveCalibration() {
   Serial.print(accel, DEC);
   Serial.print(" Маг=");
   Serial.println(mag, DEC);
-
+*/
     if (isFullyCalibrated()) {
         logStream->println("Calibration is fully calibrated");
-        saveCalibrationData();
+
+        saveCalibrationData();  
+        lastSavedCalibrationTime = millis();
         calibrationSaved = true;
+
     }
 }
 
@@ -355,6 +360,7 @@ void IMUSensor_BNO055::saveCalibrationData() {
     prefs.putBool("calib_valid", true);
     
     prefs.end();
+    Serial.printf("Calibration data saved to %s\n", prefsName.c_str());
     
 }
 

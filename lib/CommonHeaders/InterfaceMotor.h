@@ -17,7 +17,7 @@ enum MotorPowerMode {
 
 class IMotorDriver {
     public:
-    virtual void setForce(int speed)=0;
+    virtual void setForce(int grams)=0;
     virtual int getForce()=0;
     virtual bool stop() { setForce(0); return true;};
     virtual void begin()=0;

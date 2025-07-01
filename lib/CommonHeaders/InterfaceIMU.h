@@ -52,6 +52,8 @@ public:
     virtual void setCalibrationData(const IMUCalibData data, bool save = false) = 0;
     virtual bool DMPValid() =0;
     virtual int8_t getIntStatus() = 0;
+    virtual void setFrequency(uint16_t frequency) {};
+    virtual void begin() {};
     virtual ~IIMU() = default;
 };
 

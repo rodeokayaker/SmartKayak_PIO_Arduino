@@ -18,7 +18,7 @@
 
 #define INCLUDE_vTaskDelayUntil 1
 
-#define Y_AXIS_DIRECTION 1   //Ось Y IMU датчика направлена на правую лопатку
+#define Y_AXIS_DIRECTION -1   //Ось Y IMU датчика направлена на правую лопатку
 
 
 // Определения пинов
@@ -102,6 +102,8 @@ class RGBLedInterface: public ILogInterface{
 void SwitchOff(){
     Serial.printf("Shutdown Paddle. PIN: %d\n", POWER_PIN);
     if (POWER_PIN>=0) digitalWrite(POWER_PIN, LOW);
+
+    
 }
 
 
@@ -120,6 +122,8 @@ class switchOffButton: public ButtonDriver {
         }
         Serial.println("Switch off button long press");
         SwitchOff();
+        delay(100);
+        ESP.restart();
     }
     void onRelease() override { lastReleaseTime=millis();}
     void onPress() override { }

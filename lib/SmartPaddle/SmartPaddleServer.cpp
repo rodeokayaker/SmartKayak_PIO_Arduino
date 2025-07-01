@@ -923,11 +923,13 @@ void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
     SP_Math::Vector local_up = q.conjugate().rotate(global_up);
 
     // Проекция вектора на плоскость XZ локальной системы (игнорируем Y компоненту)
-    float x = local_up.x();
-    float z = local_up.z();
+
+    local_up.y() = 0;
+    local_up.normalize();
+
     
     // Вычисляем угол между проекцией и осью Z в локальной системе координат
-    float blade_angle = atan2(x, z);
+    float blade_angle = atan2(local_up.x(), local_up.z());
 
     if (logStream) {
         logStream->printf("Calibrating %s blade angle\n", 
@@ -941,24 +943,24 @@ void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
     // Сохраняем угол
     if (blade_side == RIGHT_BLADE) {
         bladeOrientation.rightBladeAngle = blade_angle;
-        bladeOrientation.rightBladeVector[0] = x;
+        bladeOrientation.rightBladeVector[0] = local_up.x();
         bladeOrientation.rightBladeVector[1] = 0;
-        bladeOrientation.rightBladeVector[2] = z;
+        bladeOrientation.rightBladeVector[2] = local_up.z();
     } else if (blade_side == LEFT_BLADE) {
         bladeOrientation.leftBladeAngle = blade_angle;
-        bladeOrientation.leftBladeVector[0] = x;
+        bladeOrientation.leftBladeVector[0] = local_up.x();
         bladeOrientation.leftBladeVector[1] = 0;
-        bladeOrientation.leftBladeVector[2] = z;
+        bladeOrientation.leftBladeVector[2] = local_up.z();
     } else {
         Serial.printf("Calibrate blade angle command with no side\n");
         bladeOrientation.rightBladeAngle = blade_angle;
-        bladeOrientation.rightBladeVector[0] = x;
+        bladeOrientation.rightBladeVector[0] = local_up.x();
         bladeOrientation.rightBladeVector[1] = 0;
-        bladeOrientation.rightBladeVector[2] = z;        
+        bladeOrientation.rightBladeVector[2] = local_up.z();        
         bladeOrientation.leftBladeAngle = blade_angle;
-        bladeOrientation.leftBladeVector[0] = x;
+        bladeOrientation.leftBladeVector[0] = local_up.x();
         bladeOrientation.leftBladeVector[1] = 0;
-        bladeOrientation.leftBladeVector[2] = z;
+        bladeOrientation.leftBladeVector[2] = local_up.z();
     }
 
     // Сохраняем в память
@@ -966,14 +968,14 @@ void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
     prefs.begin(prefsName.c_str(), false);
     if (blade_side == RIGHT_BLADE) {
         prefs.putFloat("rightBladeAngle", blade_angle);
-        prefs.putFloat("rightBVectorX", x);
+        prefs.putFloat("rightBVectorX", local_up.x());
         prefs.putFloat("rightBVectorY", 0);
-        prefs.putFloat("rightBVectorZ", z);
+        prefs.putFloat("rightBVectorZ", local_up.z());
     } else if (blade_side == LEFT_BLADE) {
         prefs.putFloat("leftBladeAngle", blade_angle);
-        prefs.putFloat("leftBVectorX", x);
+        prefs.putFloat("leftBVectorX", local_up.x());
         prefs.putFloat("leftBVectorY", 0);
-        prefs.putFloat("leftBVectorZ", z);
+        prefs.putFloat("leftBVectorZ", local_up.z());
     }
     prefs.end();
     sendPaddleOrientation(0);

@@ -11,8 +11,10 @@
 #include "SD.h"
 #include "AmperikaCRLog.h"
 #include <ESP32Servo.h>
-#include "IMUSensor_BNO055.h"
+//#include "IMUSensor_BNO055.h"
+#include "IMUSensor_BNO085.h"
 //#include "IMUSensor_GY87.h"
+//#include "IMUSensor_ICM20948.h"
 
 #include "ChinaMotor.h"
 #include "TFTSmallDisplay.h"
@@ -138,6 +140,7 @@ class DebugScenario {
 
 DebugScenario debugScenario((int*)&currentForce);
 
+void switchLogToDebugMode();
 
 class PowerButton : public ButtonDriver, public IModeSwitch {
 private:
@@ -177,6 +180,7 @@ public:
             kayakDisplay->switchDebugScreen(true);
             currentForce = 1500;
             debugMotorChandeForce(0);
+            switchLogToDebugMode();
             kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
         }
         else {
@@ -206,12 +210,15 @@ void PowerButton::onRelease() {
 // Глобальные объекты
 
 SmartPaddleBLEClient paddle("Paddle_1");
-IMUSensor_BNO055 imu_bno055("imu_bno055", IMU_I2C_ADDRESS, -1, &Serial);
+//IMUSensor_BNO055 imu_bno055("imu_bno055_2", IMU_I2C_ADDRESS, -1, &Serial);
+IMUSensor_BNO085 imu_bno085("imu_bno085");
 //IMUSensor_GY87 imu_bno055("imu_gy87", true, IMU_INTERRUPT_PIN);
+//IMUSensor_ICM20948 imu_icm20948("imu_icm20948", ICM20948_I2C_ADDRESS, IMU_INTERRUPT_PIN, &Serial);
 SmartKayak kayak;
 PowerButton powerButton(BUTTON1_PIN);
 AmperikaCRLog SDlog(SD_CS, SD_SCK, SD_MISO, SD_MOSI);
 ChinaMotor motor(MOTOR_PWM);
+IIMU* imu_sensor = &imu_bno085;
 
 class LogButton: public ButtonDriver, public ILogSwitch {
     private:
@@ -253,6 +260,11 @@ class LogButton: public ButtonDriver, public ILogSwitch {
             return;
         }
 
+        if (powerButton.getMotorDebugMode()) {
+            powerButton.debugMotorChandeForce(-50);
+            kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
+            return;
+        }
 
         if (logMode != LogMode::LOG_MODE_OFF) {
             if (!logStarted) {
@@ -267,6 +279,14 @@ class LogButton: public ButtonDriver, public ILogSwitch {
     }
 
     void onLongPress() override {
+        if (powerButton.getMotorDebugMode()) {
+            if (!debugScenario.isRunning()) {
+                debugScenario.start();
+            } else {
+                debugScenario.stop();
+            }
+            return;
+        }
         logMode = (LogMode)((((int)logMode+1) % nLogModes));
         SD_Logger->StopLog();
         logStarted = false;
@@ -275,12 +295,25 @@ class LogButton: public ButtonDriver, public ILogSwitch {
 //        kayak.calibratePaddle();
     }
 
+    void switchToDebugMode() {
+        if (logMode == LogMode::LOG_MODE_DEBUG) {
+            if (!logStarted) {
+                startNewLog();
+                logStarted = true;
+            }
+        }
+    }
+
     LogMode getLogMode() override { return logMode; }
     bool getLogStarted() override { return logStarted; }
     void onPress() override {}
 };
 
 LogButton logButton(BUTTON2_PIN);
+
+void switchLogToDebugMode() {
+    logButton.switchToDebugMode();
+}
 
 class DisplayButton: public ButtonDriver {
     private:
@@ -485,7 +518,7 @@ void processCommand(const char* cmd) {
         //imu.setLogLevel(0);
         Serial.println("Logging stopped");
     } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
-        imu_bno055.calibrate();
+        imu_sensor->calibrate();
     }
     else if(strcmp(cmd, CMD_PADDLE_IMU_CALIBRATE) == 0) {
         paddle.calibrateIMU();
@@ -525,7 +558,7 @@ void processCommand(const char* cmd) {
         }
     }
     else if(strcmp(cmd, CMD_MAG_CALIBRATE) == 0) {
-        imu_bno055.calibrateCompass();
+        imu_sensor->calibrateCompass();
     }
     else if(strcmp(cmd, CMD_PADDLE_CALIBRATE_BLADE_ANGLE_LEFT) == 0) {
         paddle.calibrateBladeAngle(LEFT_BLADE);
@@ -611,7 +644,7 @@ void setMagnitometerCalibration() {
     float offset[3] = {0, 0, 0};
     float scale[3] = {1, 1, 1};
     float SI[3] = {1, 1, 1};
-    IMUCalibData imuCalibrationData = imu_bno055.getCalibrationData();
+    IMUCalibData imuCalibrationData = imu_sensor->getCalibrationData();
     imuCalibrationData.magOffset[0] = -5832.785182;
     imuCalibrationData.magOffset[1] = -4309.213456;
     imuCalibrationData.magOffset[2] = -288.716420;
@@ -621,7 +654,7 @@ void setMagnitometerCalibration() {
     imuCalibrationData.magSI[0] = -0.003708;
     imuCalibrationData.magSI[1] = -0.004617;
     imuCalibrationData.magSI[2] = 0.002007;
-    imu_bno055.setCalibrationData(imuCalibrationData,true);
+    imu_sensor->setCalibrationData(imuCalibrationData,true);
 }
 
 static void IRAM_ATTR loadCellDataReady() {
@@ -668,14 +701,14 @@ void setup() {
     Serial.println("Paddle initialized");
     
     Serial.println("Starting IMU initialization...");
-    imu_bno055.setFrequency(IMU_FREQUENCY);
-    imu_bno055.begin();
+//    imu_sensor->setFrequency(IMU_FREQUENCY);
+    imu_sensor->begin();
     Serial.println("IMU initialized");
     
     Serial.println("Starting kayak initialization...");
     kayak.setPaddle(&paddle);
     kayak.setDisplay(kayakDisplay);
-    kayak.setIMU(&imu_bno055, IMU_FREQUENCY);
+    kayak.setIMU(imu_sensor, IMU_FREQUENCY);
     kayak.setModeSwitch(&powerButton);
     kayak.setMotorDriver(&motor);
     kayak.begin();
