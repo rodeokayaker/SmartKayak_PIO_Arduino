@@ -113,7 +113,7 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
     */
 
     // Возвращаем суммарную силу в граммах (проекция уже учтена в расчетах выше)
-    return totalForce * 1000/9.81;
+    return -totalForce * 1000/9.81;
     
 }
 

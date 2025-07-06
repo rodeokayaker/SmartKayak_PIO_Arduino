@@ -130,9 +130,7 @@ public:
 
     uint32_t paddleMillis() override {return ::millis();}
 
-    void SetYAxisDirection(signed char direction) {
-        bladeOrientation.YAxisDirection = direction;
-    };
+    void SetYAxisDirection(signed char direction, bool save = true);
 
     void clearTrustedDevice();
     void saveSpecs();

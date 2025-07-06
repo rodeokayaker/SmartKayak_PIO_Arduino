@@ -16,6 +16,7 @@
 
 
 #define SMARTKAYAK_LOG_FORCE 1
+#define LOADCELL_SMOOTHING_FACTOR 0.5f
 
 // Добавляем enum для состояний предвосхищения
 enum class AnticipationState {
@@ -70,6 +71,10 @@ class SmartKayak{
     int nullLoadLeft;
     int nullLoadRight;
 
+    BladeSideType currentBladeSide;
+    int currentForceGramms;
+    loadData currentLoadCellData;
+
     LoadCellCalibrator loadCellCalibrator;
     KayakDisplay* display;
     KayakDisplayData displayData;
@@ -105,7 +110,6 @@ class SmartKayak{
     void setIMU(IIMU* imu, uint32_t frequency);
     void logState(ILogInterface* logger);
 
-    void calibratePaddle();
     void logVizualizeSerial();
     void logVizualizeMag();
 

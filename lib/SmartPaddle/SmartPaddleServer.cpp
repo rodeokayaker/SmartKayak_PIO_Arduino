@@ -984,7 +984,7 @@ void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
 bool SmartPaddleBLEServer::loadBladeOrientation(){
     Preferences prefs;
     prefs.begin(prefsName.c_str(), true);
-     bladeOrientation.YAxisDirection = prefs.getInt("yAxisDirection", 1);
+     bladeOrientation.YAxisDirection = prefs.getInt("yAxisDirection", -1);
     bladeOrientation.rightBladeAngle = prefs.getFloat("rightBladeAngle", 0);
     bladeOrientation.leftBladeAngle = prefs.getFloat("leftBladeAngle", 0);
     bladeOrientation.rightBladeVector[0] = prefs.getFloat("rightBVectorX", 0);
@@ -997,6 +997,16 @@ bool SmartPaddleBLEServer::loadBladeOrientation(){
     sendPaddleOrientation(1000);
     return true;
 }
+
+void SmartPaddleBLEServer::SetYAxisDirection(signed char direction, bool save) {
+    bladeOrientation.YAxisDirection = direction;
+    if (save) {
+        Preferences prefs;
+        prefs.begin(prefsName.c_str(), false);
+        prefs.putInt("yAxisDirection", direction);
+        prefs.end();
+    }
+};
 
 void SmartPaddleBLEServer::saveSpecs(){
     Preferences prefs;

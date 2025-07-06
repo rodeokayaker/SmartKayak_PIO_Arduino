@@ -6,8 +6,8 @@ ChinaMotor::ChinaMotor(int pin):
     motor_pin(pin),
      motor_idle_start_time(0),
      force_change_time(0),
-     stop_time(0)
-
+     stop_time(0), 
+     forceGramms(0)
 {
 
     
@@ -63,6 +63,7 @@ void ChinaMotor::setThrustKg(int desired_thrust_gr) {
 }
 
 void ChinaMotor::setForce(int force) {
+        forceGramms = force;
         if (force == 0 && currentForce == STOP_SIGNAL) {
             return;
         }
@@ -78,13 +79,19 @@ void ChinaMotor::setForce(int force) {
         if ((currentForce >STOP_SIGNAL && force<0) || (currentForce <STOP_SIGNAL && force>0)) {
             // if force is changing direction, start idle time
             //Serial.printf("Changing direction, starting idle time\n");
-            motor_idle_start_time = millis();
-            servo.writeMicroseconds(STOP_SIGNAL);
-            stop_time = millis();
-            force_change_time = millis();
-            currentForce = STOP_SIGNAL;
-            return;
+            if (millis() - last_force_change_time < FORCE_CHANGE_TIME) {
+                force=0;
+            } else {
+                motor_idle_start_time = millis();
+                servo.writeMicroseconds(STOP_SIGNAL);
+                stop_time = millis();
+                force_change_time = millis();
+                currentForce = STOP_SIGNAL;
+                return;
+            }
         }
+
+        if (force!=0) last_force_change_time = millis();
 
         int forceApprox = STOP_SIGNAL;
         if (stop_time>millis()) {
@@ -131,6 +138,7 @@ void ChinaMotor::runRaw(int speed) {
 }
 
 bool ChinaMotor::stop() {
+    forceGramms = 0;
     currentForce = STOP_SIGNAL;
     servo.writeMicroseconds(STOP_SIGNAL);
     stop_time = millis();

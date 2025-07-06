@@ -144,17 +144,10 @@ void TFTSmallDisplay::showOrientationScreen() {
             oldLineCoord[2] = paddleEndX;
             oldLineCoord[3] = paddleEndY;
             
-            // Определяем цвет весла в зависимости от активной стороны
             uint16_t paddleColor = TFT_GREEN;
-/*            if (isRightBlade) {
-                paddleColor = TFT_RED;    // Правая сторона
-            } else {
-                paddleColor = TFT_BLUE;   // Левая сторона  
-            }*/
             
             // Рисуем новую линию весла и точку
             tft.drawLine(paddleStartX, paddleStartY, paddleEndX, paddleEndY, paddleColor);
-//            tft.fillCircle(paddleX, paddleY, 3, paddleColor);
         }
         
         // Обновляем отображение углов только если изменились
@@ -194,9 +187,6 @@ void TFTSmallDisplay::showOrientationScreen() {
         tft.drawString(String((int)currentData.rightTare), 115, 80);
         tft.drawString(String((int)currentData.rightForce), 115, 90);
 
-
-
-        
         xSemaphoreGive(tftMutex);
     }
 }

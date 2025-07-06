@@ -197,11 +197,13 @@ void PowerButton::onRelease() {
     if (isLongPressed()) {
         return;
     }
-    if (MotorDebugMode) {
-        debugMotorChandeForce(50);
+
+    if (getMotorDebugMode()) {
+        debugMotorChandeForce(-50);
         kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
         return;
     }
+
     currentMode = (MotorPowerMode)((((int)currentMode+1) % 4));
 
 
@@ -229,7 +231,7 @@ class LogButton: public ButtonDriver, public ILogSwitch {
     public:
     LogButton(int pin): ButtonDriver(pin), 
         side(BladeSideType::RIGHT_BLADE),
-        logMode(LogMode::LOG_MODE_OFF),
+        logMode(LogMode::LOG_MODE_ALL),
         logStarted(false) {}
         
     void begin() {
@@ -259,9 +261,8 @@ class LogButton: public ButtonDriver, public ILogSwitch {
         if (isLongPressed()) {
             return;
         }
-
         if (powerButton.getMotorDebugMode()) {
-            powerButton.debugMotorChandeForce(-50);
+            powerButton.debugMotorChandeForce(50);
             kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
             return;
         }
@@ -290,9 +291,7 @@ class LogButton: public ButtonDriver, public ILogSwitch {
         logMode = (LogMode)((((int)logMode+1) % nLogModes));
         SD_Logger->StopLog();
         logStarted = false;
-//        vTaskDelay(pdMS_TO_TICKS(10));
         startNewLog();
-//        kayak.calibratePaddle();
     }
 
     void switchToDebugMode() {

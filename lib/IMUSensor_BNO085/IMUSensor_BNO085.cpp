@@ -143,7 +143,7 @@ bool IMUSensor_BNO085::begin(uint16_t imuFreq, uint16_t magFreq) {
     }
     
     logStream->println("Мягкий сброс...");
-    myIMU.softReset(); // Сброс для применения настроек
+//    myIMU.softReset(); // Сброс для применения настроек
     delay(100);
     
     sensorReady = true;
@@ -196,47 +196,13 @@ void IMUSensor_BNO085::setReports() {
     logStream->println("🔧 Режим высокой точности настроен!");
 }
 
-//---------------------------------TEMPORARY FIX---------------------------------
 
-void FIXROTATIONVECTOR(float& q0, float& q1, float& q2, float& q3, uint8_t how = 0){
-    if (how==0) return;
-    
-    // Сохраняем исходный кватернион
-    float orig_q0 = q0, orig_q1 = q1, orig_q2 = q2, orig_q3 = q3;
-    
-    // Кватернион поворота вокруг Z: [w, 0, 0, z]
-    float rot_w, rot_z;
-    
-    switch (how) {
-        case 1: // Поворот на 90° против часовой стрелки
-            rot_w = 0.70710678f;   // cos(π/4)
-            rot_z = 0.70710678f;   // sin(π/4)
-            break;
-        case 2: // Поворот на 180°
-            rot_w = 0.0f;          // cos(π/2)
-            rot_z = 1.0f;          // sin(π/2)
-            break;
-        case 3: // Поворот на 270° против часовой стрелки
-            rot_w = -0.70710678f;  // cos(3π/4)
-            rot_z = 0.70710678f;   // sin(3π/4)
-            break;
-        default:
-            return; // Неизвестный код поворота
-    }
-    
-    // Умножение кватернионов: result = rotation * original
-    // rotation = [rot_w, 0, 0, rot_z], original = [orig_q0, orig_q1, orig_q2, orig_q3]
-    q0 = rot_w * orig_q0 - rot_z * orig_q3;
-    q1 = rot_w * orig_q1 + rot_z * orig_q2;
-    q2 = rot_w * orig_q2 - rot_z * orig_q1;
-    q3 = rot_w * orig_q3 + rot_z * orig_q0;
-} 
 
 IMUData IMUSensor_BNO085::readData() {
     if (!sensorReady) {
         return currentData;
     }
-    
+
     // Проверяем наличие новых данных
     if (myIMU.getSensorEvent() == true) {
         uint8_t sensorID = myIMU.getSensorEventID();
@@ -279,9 +245,6 @@ IMUData IMUSensor_BNO085::readData() {
             
             // Проверка и сохранение калибровки
             checkAndSaveCalibration();
-// ---------------------------------TEMPORARY FIX---------------------------------
-            FIXROTATIONVECTOR(currentData.q0, currentData.q1, currentData.q2, currentData.q3, 1);
-// ---------------------------------TEMPORARY FIX---------------------------------
         }
     }
     
@@ -325,8 +288,8 @@ void IMUSensor_BNO085::checkAndSaveCalibration() {
     currentCalibration.measurementCount++;
     
     // Выводим статус калибровки
-    logStream->printf("📊 Калибровка: уровень %d (точность: %.4f рад)\n", 
-                     qualityLevel, quatAccuracy);
+//    logStream->printf("📊 Калибровка: уровень %d (точность: %.4f рад)\n", 
+//                     qualityLevel, quatAccuracy);
     
     // Проверяем, нужно ли сохранить калибровку
     bool shouldSave = false;

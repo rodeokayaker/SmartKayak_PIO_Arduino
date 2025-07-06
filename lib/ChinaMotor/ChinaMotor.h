@@ -6,7 +6,8 @@
 #include <ESP32Servo.h>
 
 #define IDLE_TIME 300
-#define STOP_TIME 1000
+#define STOP_TIME 1700
+#define FORCE_CHANGE_TIME 400
 
 class ChinaMotor: public IMotorDriver {
 
@@ -14,9 +15,12 @@ class ChinaMotor: public IMotorDriver {
     Servo servo;
     int motor_pin;
     uint32_t motor_idle_start_time;
+    float forceGramms;
 
     uint32_t stop_time;
     uint32_t force_change_time;
+    uint32_t last_force_change_time;
+
 
     const int STOP_SIGNAL=1500;
     const int FULL_FORWARD_SIGNAL=2000;
@@ -47,6 +51,8 @@ class ChinaMotor: public IMotorDriver {
     bool stop() override;
 
     void runRaw(int speed);
+
+    int getForceGramms() override {return forceGramms;}
 
     // Преобразование желаемой тяги в килограммах в управляющий сигнал мотора
     int getSignalFromForce(int desired_thrust_gr);
