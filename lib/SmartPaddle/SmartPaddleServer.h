@@ -3,6 +3,9 @@
 
 #include <SmartPaddle.h>
 #include <LogInterface.h>
+#include "BLEServer.h"
+#include "OverwritingQueue.h"
+
 
 #define HX711_SET_INTERRUPT
 #define HX711_RESET_FREQUENCY 60000
@@ -25,11 +28,12 @@ private:
 //Sensors
     IIMU* imu;
     ILoadCell* loads[2];
-    uint16_t FilterFrequency;
     loadData lastLoadData;
 
 //Preferences
     std::string prefsName;
+
+// Where should i write information    
     Stream* logStream;
 
 //Queues
@@ -37,18 +41,17 @@ private:
     OverwritingQueue<OrientationData> orientationQueue;       
     OverwritingQueue<IMUData> imuQueue;
     OverwritingQueue<BladeData> bladeQueue;
+
     bool send_specs;
     uint32_t time_to_send_specs;
     bool send_paddle_orientation;
     uint32_t time_to_send_paddle_orientation;
-
 
 //BLE POINTERS
     BLEServer* pServer;
     BLECharacteristic *forceCharacteristic;
     BLECharacteristic *imuCharacteristic;
     BLECharacteristic *orientationCharacteristic;
-//    BLECharacteristic *bladeCharacteristic;
     BLEAdvertising *pAdvertising;
     BLEAddress* trustedDevice;
     BLESecurity* pSecurity;
@@ -60,8 +63,6 @@ private:
     uint16_t conn_id;
     bool sendData;
 
-//    ILogInterface* logInterface;
-
 //RTOS
     TaskHandle_t bleSendTaskHandle;
     TaskHandle_t bleReceiveTaskHandle;
@@ -70,7 +71,7 @@ private:
     TaskHandle_t orientationTaskHandle;
     TaskHandle_t magnetometerTaskHandle;
 
-    uint16_t bleSendFrequency;
+    uint16_t bleSendFrequency;           
     uint16_t bleReceiveFrequency;
     uint16_t loadCellFrequency;
     uint16_t imuFrequency;
@@ -79,14 +80,14 @@ private:
     void setTrustedDevice(BLEAddress* address);
     void loadTrustedDevice();
 
-private:
     void printBondedDevices();
     void removeAllBondedDevices();
     void removeBondedDevice(BLEAddress address);
     bool isBonded(BLEAddress address);    
 
-    void startAdvertising(BLEAdvertising* advertising);
     bool connect();                   // Connect to paddle
+
+    void startAdvertising(BLEAdvertising* advertising);
 
     bool updateIMU();
     bool updateLoads();
@@ -104,7 +105,6 @@ public:
     void begin(const char* deviceName);
     void setPaddleID(uint32_t id){specs.paddleID=id;}
     void setPaddleType(PaddleType type){specs.paddleType=type;}    
-    void setFilterFrequency(uint32_t frequency){FilterFrequency=frequency;}
 
     void setIMU(IIMU* imuSensor){imu=imuSensor;}
     void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}

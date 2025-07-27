@@ -44,9 +44,6 @@ constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
 #define BLE_SERIAL_FREQUENCY 10
 #define BLE_STACK_SIZE 4096
 
-extern bool log_imu;
-extern bool log_load;
-
 // Глобальная переменная для хранения handle задачи
 TaskHandle_t serialTaskHandle = NULL;
 
@@ -137,9 +134,6 @@ switchOffButton OffButton(SWITCH_OFF_PIN);
 #define CMD_CALIBRATE_ALL "calibrate_all"
 #define CMD_HELP "help"
 #define CMD_STATUS "status"
-#define CMD_LOG_IMU "log_imu"
-#define CMD_LOG_LOAD "log_load"
-#define CMD_LOG_STOP "log_stop"
 #define CMD_PAIR "pair"
 #define CMD_UNPAIR "unpair"
 #define CMD_BLE_STATUS "ble_status"
@@ -217,9 +211,7 @@ void processCommand(const char* cmd) {
         Serial.println("unpair        - Clear paired device");
         Serial.println("ble_status    - Show BLE connection status");
         Serial.println("help           - Show this help");
-        Serial.println("log_imu        - Start logging IMU data");
-        Serial.println("log_load       - Start logging load data");
-        Serial.println("log_stop       - Stop logging data");
+
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
        Serial.println("LOAD Calibration: ");
@@ -284,16 +276,6 @@ void processCommand(const char* cmd) {
             Serial.println("Client Info:");
             // Можно добавить дополнительную информацию о подключенном клиенте
         }
-    }
-    else if(strcmp(cmd, CMD_LOG_IMU) == 0)  {
-        log_imu = true;
-    }
-    else if(strcmp(cmd, CMD_LOG_LOAD) == 0)  {
-        log_load = true;
-    }
-    else if(strcmp(cmd, CMD_LOG_STOP) == 0)  {
-        log_imu = false;
-        log_load = false;
     }
     else {
         Serial.println("Unknown command. Type 'help' for available commands.");
@@ -374,7 +356,6 @@ void setup() {
     uint32_t paddleId;
     paddleId = generatePaddleID();
     paddle.setPaddleID(paddleId);
-    paddle.setFilterFrequency(IMU_FREQUENCY);
     paddle.setEventHandler(&eventHandler);
     paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
     // Инициализация Весла

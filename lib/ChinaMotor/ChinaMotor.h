@@ -5,9 +5,8 @@
 #include "Arduino.h"
 #include <ESP32Servo.h>
 
-#define IDLE_TIME 300
-#define STOP_TIME 1700
-#define FORCE_CHANGE_TIME 400
+#define IDLE_TIME 200
+#define STOP_TIME 500
 
 class ChinaMotor: public IMotorDriver {
 
@@ -19,7 +18,6 @@ class ChinaMotor: public IMotorDriver {
 
     uint32_t stop_time;
     uint32_t force_change_time;
-    uint32_t last_force_change_time;
 
 
     const int STOP_SIGNAL=1500;

@@ -6,6 +6,7 @@
 #include "SP_Types.h"
 #include "InterfaceIMU.h"
 #include "InterfaceLoadCell.h"
+#include "BLEAddress.h"
 
 class SmartPaddle;
 

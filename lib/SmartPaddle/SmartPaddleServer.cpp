@@ -5,7 +5,6 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <MadgwickAHRS.h>
 #include <esp_gatts_api.h>
 #include <ArduinoJson.h>
 #include "freertos/FreeRTOS.h"
@@ -20,10 +19,6 @@
 #define MAGNETOMETER_STACK_SIZE 4096
 #define BLE_STACK_SIZE 4096
 #define BLE_RECEIVE_STACK_SIZE 8192
-
-extern bool log_imu;
-extern bool log_load;
-
 
 class SPServer_MessageHandler: public SP_MessageHandler{
     private:
@@ -194,8 +189,9 @@ class SPServerRTOS{
             if (xFrequency==0){
                // Ждем уведомления от прерывания
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            }
-
+            } else 
+                xTaskDelayUntil(&xLastWakeTime, xFrequency);
+                
             if (paddle->connected()) {
                 if (paddle->sendData) {
                     if (paddle->updateIMU()){
@@ -205,8 +201,6 @@ class SPServerRTOS{
                 }
             }
 
-            if (xFrequency>0)
-                xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
         }
     }
@@ -424,7 +418,7 @@ SmartPaddleBLEServer* SPServerRTOS::mainPaddle = nullptr;
 
 void SmartPaddleBLEServer::calibrateIMU(){
     sendData=false; 
-    if (logStream) logStream->println("CALIBRATE IMU COMMAND");
+    logStream->println("CALIBRATE IMU COMMAND");
     if (imu) imu->calibrate();
     sendData=true;
 }
@@ -508,7 +502,8 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
       do_connect(false),
       time_to_connect(0),
       sendData(false),
-      lastLoadData({0,0,0,0,0})
+      lastLoadData({0,0,0,0,0}),
+      logStream(&Serial)
 {
     //BLE Serial initialization
     serial=new SP_BLESerialServer(this);
@@ -891,8 +886,7 @@ void SmartPaddleBLEServer::updateBLE(){
 }
 
 void SmartPaddleBLEServer::shutdown() {
-    if (logStream)
-        logStream->println("Shutdown Paddle");
+    logStream->println("Shutdown Paddle");
     if (eventHandler)
         eventHandler->onShutdown(this);
 }
@@ -931,14 +925,15 @@ void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
     // Вычисляем угол между проекцией и осью Z в локальной системе координат
     float blade_angle = atan2(local_up.x(), local_up.z());
 
-    if (logStream) {
+    #if 0
         logStream->printf("Calibrating %s blade angle\n", 
             blade_side == RIGHT_BLADE ? "right" : "left");
         logStream->printf("Global normal vector: %.3f, %.3f, %.3f\n", 
             local_up.x(), local_up.y(), local_up.z());
         logStream->printf("Blade angle around Y axis: %.1f degrees\n", 
             blade_angle * 180.0f / M_PI);
-    }
+
+    #endif
 
     // Сохраняем угол
     if (blade_side == RIGHT_BLADE) {

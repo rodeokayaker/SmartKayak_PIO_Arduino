@@ -79,19 +79,13 @@ void ChinaMotor::setForce(int force) {
         if ((currentForce >STOP_SIGNAL && force<0) || (currentForce <STOP_SIGNAL && force>0)) {
             // if force is changing direction, start idle time
             //Serial.printf("Changing direction, starting idle time\n");
-            if (millis() - last_force_change_time < FORCE_CHANGE_TIME) {
-                force=0;
-            } else {
-                motor_idle_start_time = millis();
-                servo.writeMicroseconds(STOP_SIGNAL);
-                stop_time = millis();
-                force_change_time = millis();
-                currentForce = STOP_SIGNAL;
-                return;
-            }
+            motor_idle_start_time = millis();
+            servo.writeMicroseconds(STOP_SIGNAL);
+            stop_time = millis();
+            force_change_time = millis();
+            currentForce = STOP_SIGNAL;
+            return;
         }
-
-        if (force!=0) last_force_change_time = millis();
 
         int forceApprox = STOP_SIGNAL;
         if (stop_time>millis()) {

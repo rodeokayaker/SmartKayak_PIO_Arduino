@@ -8,11 +8,8 @@ class StrokePredictor {
     public:
         StrokePredictor();
         virtual ~StrokePredictor();
-        virtual float PredictForce (float shaftRotationAngle,
-         float shaftTiltAngle,
-         float bladeRotationAngle, 
-         BladeSideType bladeSide, 
-         float CalculatedForce, 
-         float& coefPredict, 
-         float& coefCalculate); 
+        virtual float PredictForce(float shaft_z, float blade_z, BladeSideType bladeSide, 
+                                  float current_force, float& coefPredict);
+};
+
 #endif

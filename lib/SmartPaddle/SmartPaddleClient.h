@@ -5,6 +5,8 @@
 #include <BLEClient.h>
 #include <BLESecurity.h>
 #include <BLE2902.h>
+#include "OverwritingQueue.h"
+
 
 namespace SPClient_Default_Frequencies {
     const uint16_t BLE_SEND_FREQUENCY = 10;
@@ -66,18 +68,18 @@ private:
     void clearTrustedDevice();
 
     bool setupCharacteristics();
-    
+
+    bool connect();        // BLE connect method
+
 public:
     SmartPaddleBLEClient(const char* prefs_Name);
     
     // Реализация интерфейса SmartPaddle
     void begin(const char* deviceName) override;
-    void setFilterFrequency(uint32_t frequency) override {} // Не используется на клиенте
     
     // Эти методы не используются на клиенте
     void updateBLE();
     
-    bool connect() override;
     void disconnect() override;
     void startPairing() override;
     

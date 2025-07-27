@@ -437,8 +437,6 @@ void vizualizeSerialTask(void *pvParameters) {
 #define CMD_HELP "help"
 #define CMD_STATUS "status"
 #define CMD_PAIR "pair"
-#define CMD_LOG_START "log_start"
-#define CMD_LOG_STOP "log_stop"
 #define CMD_IMU_CALIBRATE "calib_imu"
 #define CMD_MAG_CALIBRATE "calib_mag"
 #define CMD_PADDLE_IMU_CALIBRATE "calib_p_imu"
@@ -463,8 +461,6 @@ void processCommand(const char* cmd) {
         Serial.println("Available commands:");
         Serial.println("pair          - Start pairing with paddle");
         Serial.println("status        - Show current paddle status");
-        Serial.println("log_start     - Start logging paddle data");
-        Serial.println("log_stop      - Stop logging paddle data");
         Serial.println("calib_imu - Start IMU calibration");
         Serial.println("calib_mag - Start Magnetometer calibration");
         Serial.println("calib_p_imu - Start Paddle IMU calibration");
@@ -500,22 +496,6 @@ void processCommand(const char* cmd) {
     else if(strcmp(cmd, CMD_PAIR) == 0) {
         Serial.println("Starting pairing mode...");
         paddle.startPairing();
-    }
-    else if(strcmp(cmd, CMD_LOG_START) == 0) {
-        //log_paddle = true;
-//        log_imu = true;
-//        log_load = true;
-//        kayak.onLogLevel(SMARTKAYAK_LOG_FORCE);
-        //imu.setLogLevel(1);
-        Serial.println("Logging started");
-    }
-    else if(strcmp(cmd, CMD_LOG_STOP) == 0) {
-        //log_paddle = false;
-        //log_imu = false;
-        //log_load = false;
-        //kayak.offLogLevel(SMARTKAYAK_LOG_FORCE);
-        //imu.setLogLevel(0);
-        Serial.println("Logging stopped");
     } else if(strcmp(cmd, CMD_IMU_CALIBRATE) == 0) {
         imu_sensor->calibrate();
     }

@@ -5,10 +5,11 @@
 #include "Peripherals.h"
 #include "LogInterface.h"
 #include "SP_Quaternion.h"
+#include "ForceAdapter.h"
 
 #include <Wire.h>
-#include <hd44780.h>
-#include <hd44780ioClass/hd44780_I2Cexp.h>
+//#include <hd44780.h>
+//#include <hd44780ioClass/hd44780_I2Cexp.h>
 
 #include "InterfaceMotor.h"
 #include "LoadCellCalibrator.h"
@@ -62,7 +63,7 @@ class SmartKayak{
 
     SP_Math::Vector paddleNullVector;
     float paddleShaftAngle;
-    SP_Math::Quaternion paddleCalibQuaternion;
+    SP_Math::Quaternion kayakOrientationQuat;
     SmartPaddle* paddle;
     IMotorDriver* motorDriver;
     IModeSwitch* modeSwitch;
@@ -76,6 +77,7 @@ class SmartKayak{
     loadData currentLoadCellData;
 
     LoadCellCalibrator loadCellCalibrator;
+    ForceAdapter forceAdapter;
     KayakDisplay* display;
     KayakDisplayData displayData;
 
@@ -97,7 +99,9 @@ class SmartKayak{
 
     TaskHandle_t imuTaskHandle;
     TaskHandle_t magnetometerTaskHandle;
-    public:
+
+
+public:
     SmartKayak();
     void begin();
 
@@ -138,6 +142,8 @@ class SmartKayak{
 
 
 private:
+    SP_Math::Quaternion getRelativeOrientation(SP_Math::Quaternion& orientation, SmartPaddle* paddle = nullptr);
+
     // Внутренние методы для предвосхищения
     void updateAnticipationLogic(float shaftTiltAngle, float bladeForce, int& force);
     void transitionToState(AnticipationState newState);

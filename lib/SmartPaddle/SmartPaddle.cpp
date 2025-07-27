@@ -1,18 +1,4 @@
 #include "SmartPaddle.h"
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-#include <MadgwickAHRS.h>
-#include <esp_gatts_api.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
-#include <SP_BLESerialClient.h>
-#include <SP_BLESerialServer.h>
-#include <Preferences.h>
-
 
 namespace SmartPaddleUUID {
     const char* SERVICE_UUID = "4b2de81d-c131-4636-8d56-83b83758f7ca";
@@ -33,8 +19,6 @@ SmartPaddle::~SmartPaddle(){
 
 int SmartPaddle::BLEMTU =247;// max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
 
-bool log_imu = false;
-bool log_load = false;
 
 
 
