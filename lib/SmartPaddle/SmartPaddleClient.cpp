@@ -87,7 +87,7 @@ class SPClient_MessageHandler: public SP_MessageHandler{
         Serial.printf("Y axis direction: %d\n", paddle->bladeOrientation.YAxisDirection);
         Serial.printf("Right blade angle: %f\n", paddle->bladeOrientation.rightBladeAngle);
         Serial.printf("Left blade angle: %f\n", paddle->bladeOrientation.leftBladeAngle);
-//        SetPaddleSpecs(paddle);
+        SetPaddleSpecs(paddle);
     }
 
     virtual void onStatus(SP_StatusMessage* status) override{

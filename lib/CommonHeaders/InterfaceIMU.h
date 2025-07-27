@@ -35,7 +35,7 @@ struct OrientationData {
 
 class IIMU {
 public:
-    virtual IMUData readData() = 0;
+    virtual bool readData() = 0;
     virtual OrientationData getOrientation() = 0; // from readed Data
     virtual IMUData getData() = 0;
     virtual OrientationData updateOrientation() = 0;

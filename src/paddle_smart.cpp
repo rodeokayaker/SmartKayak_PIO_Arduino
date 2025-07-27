@@ -2,7 +2,7 @@
 #include "SmartPaddleServer.h"
 //#include "IMUSensor_GY85.h"
 //#include "IMUSensor_GY87.h"
-#include "IMUSensor_BNO055.h"
+#include "IMUSensor_BNO085.h"
 #include "HX711.h"
 #include "Wire.h"
 #include "esp_log.h"
@@ -28,7 +28,7 @@ constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = 9;
 constexpr int I2C_SCL = 10;
-constexpr int INTERRUPT_PIN = 0;
+constexpr int INTERRUPT_PIN = -1; //0;
 constexpr int POWER_PIN = 20;
 constexpr int SWITCH_OFF_PIN = 4;
 constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
@@ -54,7 +54,7 @@ TaskHandle_t serialTaskHandle = NULL;
 LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
-IMUSensor_BNO055 imuSensor("IMU_PADDLE_MAIN_BNO055", 0x29, -1, &Serial); 
+IMUSensor_BNO085 imuSensor("IMU_PADDLE_MAIN_BNO085",(uint8_t)0x4A, INTERRUPT_PIN); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -106,8 +106,9 @@ void SwitchOff(){
 
 class switchOffButton: public ButtonDriver {
     uint32_t lastReleaseTime;
+    bool switchOff;
     public:
-    switchOffButton(int pin): ButtonDriver(pin), lastReleaseTime(0) {}
+    switchOffButton(int pin): ButtonDriver(pin), lastReleaseTime(0), switchOff(false) {}
     void onLongPress() override {
         if (millis()<5000) {
             return;
@@ -118,11 +119,19 @@ class switchOffButton: public ButtonDriver {
             return;
         }
         Serial.println("Switch off button long press");
-        SwitchOff();
-        delay(100);
-        ESP.restart();
+        switchOff=true;
     }
-    void onRelease() override { lastReleaseTime=millis();}
+    void onRelease() override { 
+        lastReleaseTime=millis(); 
+        if (isLongPressed()){
+            if (switchOff){
+                delay(300);
+                SwitchOff();
+                delay(1000);
+                ESP.restart();
+            }
+        }
+    }
     void onPress() override { }
 };
 

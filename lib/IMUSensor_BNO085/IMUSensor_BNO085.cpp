@@ -60,7 +60,7 @@ bool IMUSensor_BNO085::begin(uint16_t imuFreq, uint16_t magFreq) {
     
     // Настройка I2C
     Wire.begin();
-    Wire.setClock(100000); // Начинаем с 100 кГц для стабильности
+    Wire.setClock(400000); // 400 кГц
     
     // Сканирование I2C устройств
     logStream->println("Сканирование I2C устройств...");
@@ -93,26 +93,10 @@ bool IMUSensor_BNO085::begin(uint16_t imuFreq, uint16_t magFreq) {
     bool initSuccess = false;
     
     // Способ 1: стандартная инициализация
-    if (myIMU.begin() == true) {
+    if (myIMU.begin(i2cAddress,Wire,interruptPin) == true) {
         initSuccess = true;
         logStream->println("✓ Инициализация успешна (способ 1)");
-    } else {
-        logStream->println("Способ 1 не удался, пробуем способ 2...");
-        
-        // Способ 2: инициализация с указанием адреса
-        if (myIMU.begin(bno085Address) == true) {
-            initSuccess = true;
-            logStream->println("✓ Инициализация успешна (способ 2 с адресом)");
-        } else {
-            logStream->println("Способ 2 не удался, пробуем способ 3...");
-            
-            // Способ 3: инициализация с Wire объектом
-            if (myIMU.begin(bno085Address, Wire) == true) {
-                initSuccess = true;
-                logStream->println("✓ Инициализация успешна (способ 3 с Wire)");
-            }
-        }
-    }
+    };
     
     if (!initSuccess) {
         logStream->println("❌ Все способы инициализации не удались!");
@@ -120,10 +104,7 @@ bool IMUSensor_BNO085::begin(uint16_t imuFreq, uint16_t magFreq) {
     }
     
     logStream->println("✅ BNO085 подключен успешно!");
-    
-    // Увеличиваем частоту I2C после успешного подключения
-    Wire.setClock(400000); // 400 кГц
-    logStream->println("I2C частота увеличена до 400 кГц");
+
     
     // Настройка отчетов датчика
     setReports();
@@ -162,7 +143,8 @@ void IMUSensor_BNO085::setReports() {
         logStream->println("❌ Не удалось включить кватернион на 100 Гц");
         return;
     }
-    
+    delay(100);
+/*    
     // Включаем дополнительные сенсоры для повышения точности слияния данных
     
     // Включаем высокоточный гироскоп (100 Гц)
@@ -171,6 +153,7 @@ void IMUSensor_BNO085::setReports() {
     } else {
         logStream->println("⚠️  Гироскоп не включен");
     }
+    delay(100);
     
     // Включаем калиброванный акселерометр (100 Гц)
     if (myIMU.enableAccelerometer(interval) == true) {
@@ -178,6 +161,7 @@ void IMUSensor_BNO085::setReports() {
     } else {
         logStream->println("⚠️  Акселерометр не включен");
     }
+    delay(100);
     
     // Включаем калиброванный магнетометр (100 Гц)
     if (myIMU.enableMagnetometer(interval) == true) {
@@ -185,6 +169,7 @@ void IMUSensor_BNO085::setReports() {
     } else {
         logStream->println("⚠️  Магнетометр не включен");
     }
+    delay(100);
     
     // Включаем классификатор стабильности (помогает понять точность)
     if (myIMU.enableStabilityClassifier(100) == true) {
@@ -192,16 +177,22 @@ void IMUSensor_BNO085::setReports() {
     } else {
         logStream->println("⚠️  Классификатор стабильности не включен");
     }
-    
+    delay(100);
+    */
     logStream->println("🔧 Режим высокой точности настроен!");
 }
 
 
 
-IMUData IMUSensor_BNO085::readData() {
+bool IMUSensor_BNO085::readData() {
     if (!sensorReady) {
-        return currentData;
+        return false;
     }
+
+    if (myIMU.wasReset()) {
+        Serial.print("sensor was reset ");
+        setReports();
+      }
 
     // Проверяем наличие новых данных
     if (myIMU.getSensorEvent() == true) {
@@ -245,10 +236,15 @@ IMUData IMUSensor_BNO085::readData() {
             
             // Проверка и сохранение калибровки
             checkAndSaveCalibration();
+            return true;
+        } else {
+//            Serial.printf("Imu no vector\n");
         }
+    } else {
+//        Serial.printf("Imu no data\n");
     }
     
-    return currentData;
+    return false;
 }
 
 IMUData IMUSensor_BNO085::getData() {
