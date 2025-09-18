@@ -155,8 +155,9 @@ bool SmartPaddleBLEServer::updateIMU() {
     bool updated = false;
     if(imu) {
         // Получаем данные IMU только если он доступен
-        IMUData imuData = imu->readData();
-        if (imu->DMPValid()){
+
+        if (imu->readData() && imu->DMPValid()){
+            IMUData imuData = imu->getData();
             imuQueue.send(imuData);
             updated = true;
             // Получаем данные ориентации только если IMU доступен

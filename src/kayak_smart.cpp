@@ -2,8 +2,6 @@
 
 #include "Wire.h"
 #include "esp_log.h"
-
-#include "MadgwickAHRS.h"
 #include "Peripherals.h"
 #include "SmartKayak.h"
 
@@ -594,7 +592,7 @@ class PaddleEventHandler: public SP_EventHandler {
         if (dt > 0) {
             imu_freq = 0.001 * (1000.0/dt) + 0.999 * imu_freq;
         } else {
-            Serial.printf("IMU timestamp error: %d\n", dt);
+            Serial.printf("IMU timestamp error: %d, %d\n", dt, imuData.timestamp);
         }
         last_imu_ts = imuData.timestamp;
 //        Serial.printf("IMU Freq:  %.2f\n",imu_freq);

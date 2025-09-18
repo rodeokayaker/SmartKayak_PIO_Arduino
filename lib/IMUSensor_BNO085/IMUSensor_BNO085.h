@@ -77,7 +77,7 @@ public:
     virtual void begin() override { begin(BNO085_IMU_DEFAULT_FREQUENCY, BNO085_MAG_DEFAULT_FREQUENCY); }
     void calibrate() override;
     void calibrateCompass() override;
-    IMUData readData() override;
+    bool readData() override;
     IMUData getData() override;
     OrientationData updateOrientation() override;
     OrientationData getOrientation() override;
@@ -116,6 +116,8 @@ public:
 
     void softReset();
     bool isReady();
+
+    void setInterruptPin(int interruptPin) { this->interruptPin = interruptPin;};
     
     virtual ~IMUSensor_BNO085() {};
 };
