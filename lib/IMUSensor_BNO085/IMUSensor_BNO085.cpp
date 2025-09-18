@@ -164,7 +164,7 @@ void IMUSensor_BNO085::setReports() {
     }
     
     // Включаем дополнительные сенсоры для повышения точности слияния данных
-    
+/*    
     // Включаем высокоточный гироскоп (100 Гц)
     if (myIMU.enableGyro(interval) == true) {
         logStream->println("✅ Гироскоп включен: 100 Гц");
@@ -193,6 +193,7 @@ void IMUSensor_BNO085::setReports() {
         logStream->println("⚠️  Классификатор стабильности не включен");
     }
     
+    */
     logStream->println("🔧 Режим высокой точности настроен!");
 }
 
@@ -208,7 +209,7 @@ IMUData IMUSensor_BNO085::readData() {
         uint8_t sensorID = myIMU.getSensorEventID();
         
         // Основной кватернион и все сенсоры (100 Гц)
-        if (sensorID == SENSOR_REPORTID_ROTATION_VECTOR) {
+//        if (sensorID == SENSOR_REPORTID_ROTATION_VECTOR) {
             // Кватернион
             currentData.q1 = myIMU.getQuatI();
             currentData.q2 = myIMU.getQuatJ();
@@ -245,7 +246,7 @@ IMUData IMUSensor_BNO085::readData() {
             
             // Проверка и сохранение калибровки
             checkAndSaveCalibration();
-        }
+//        }
     }
     
     return currentData;

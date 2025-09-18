@@ -87,7 +87,10 @@ public:
     bool receiveLoadData(loadData& data, TickType_t timeout = 0);
     bool receiveIMUData(IMUData& data, TickType_t timeout = 0);
     bool receiveOrientationData(OrientationData& data, TickType_t timeout = 0);
-    bool isPairing(){return is_pairing;}
+    bool isPairing(){
+        //return is_pairing;
+        return true; //FOR TESTING differet paddles
+    }
     
     // Методы для работы со сканированием
     void startScan(uint32_t duration = 5);

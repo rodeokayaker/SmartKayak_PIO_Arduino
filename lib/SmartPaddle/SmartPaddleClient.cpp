@@ -44,6 +44,21 @@ void SetPaddleSpecs(SmartPaddleBLEClient* paddle){
     specs.hasLeftBlade = true;
     specs.hasRightBlade = true;
     specs.imuFrequency = 100;
+
+//------------------------
+    specs.paddleType = PaddleType::TWO_BLADES;
+    specs.length = 2.07f;
+    specs.imuDistance = -0.20f;
+    specs.bladeWeight = 0.25f;
+    specs.bladeCenter = 0.18f;
+    specs.bladeMomentInertia = 0.01;
+
+    specs.firmwareVersion = 1.1;
+    specs.paddleModel = "AKSU-200-AB";
+    specs.hasLeftBlade = true;
+    specs.hasRightBlade = true;
+    specs.imuFrequency = 100;
+
     paddle->getSerial()->sendString(SP_MessageProcessor::createSpecsMessage(specs));
 }
 
