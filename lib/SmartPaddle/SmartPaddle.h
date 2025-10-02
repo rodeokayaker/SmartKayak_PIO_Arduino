@@ -7,7 +7,8 @@
 
 #include <Arduino.h>
 #include "SP_BLESerial.h"
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 #include "InterfaceLoadCell.h"
 #include "SP_Types.h"
 #include "SP_EventHandler.h"

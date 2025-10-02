@@ -9,7 +9,8 @@
 #include "SP_MessageHandler.h"
 #include <ArduinoJson.h>
 #include "SP_Types.h" // Для доступа к структурам данных
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 #include "InterfaceLoadCell.h"
 
 /**
@@ -66,7 +67,7 @@ public:
     static String createBladeOrientationMessage(const BladeOrientation& orientation);
     static String createSpecsMessage(const PaddleSpecs& specs);
     static String createStatusMessage(const PaddleStatus& status);
-    static String createMagnetometerCalibrationDataMessage(const IMUCalibData& calibData);
+//    static String createMagnetometerCalibrationDataMessage(const IMUCalibData& calibData);
 
     // Ответы
     static String createSuccessResponse(const char* command, const char* message = "");

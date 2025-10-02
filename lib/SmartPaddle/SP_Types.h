@@ -23,6 +23,15 @@ struct BladeData {
     uint32_t timestamp;
 };
 
+enum AxisDirection {
+    X_AXIS_RIGHT,
+    Y_AXIS_RIGHT,
+    Z_AXIS_RIGHT,
+    X_AXIS_LEFT,
+    Y_AXIS_LEFT,
+    Z_AXIS_LEFT,
+};
+
 struct PaddleSpecs {
  
     String paddleID;                // Paddle ID
@@ -40,6 +49,8 @@ struct PaddleSpecs {
     bool hasLeftBlade;
     bool hasRightBlade;
     uint16_t imuFrequency;
+
+    AxisDirection axisDirection; //What axis and where it is directed
 };
 
 struct BladeOrientation {

@@ -4,7 +4,8 @@
 #include <Stream.h>
 #include <Arduino.h>
 #include "InterfaceLoadCell.h"
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 
 
 enum LogMode {

@@ -1,5 +1,6 @@
 #pragma once
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 #include "SmartPaddle.h"
 #include <Arduino.h>
 

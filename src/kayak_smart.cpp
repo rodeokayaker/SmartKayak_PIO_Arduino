@@ -10,7 +10,8 @@
 #include "AmperikaCRLog.h"
 #include <ESP32Servo.h>
 //#include "IMUSensor_BNO055.h"
-#include "IMUSensor_BNO085.h"
+#include "ImuBNO08X.h"
+//#include "IMUSensor_BNO085.h"
 //#include "IMUSensor_GY87.h"
 //#include "IMUSensor_ICM20948.h"
 
@@ -23,9 +24,11 @@
 #define INCLUDE_vTaskDelayUntil 1
 
 // Define pins
-//#define IMU_INTERRUPT_PIN IMU_INTA
-#define IMU_INTERRUPT_PIN -1
-#define IMU_I2C_ADDRESS 0x29
+#define IMU_INTERRUPT_PIN IMU_INTA
+//#define IMU_INTERRUPT_PIN -1
+//#define IMU_I2C_ADDRESS 0x29
+#define IMU_I2C_ADDRESS 0x4B
+#define IMU_RESET_PIN IMU_RST
 
 // Define PWM output and duty Cycle mode
 #define PWM1_Ch    0
@@ -211,14 +214,15 @@ void PowerButton::onRelease() {
 
 SmartPaddleBLEClient paddle("Paddle_1");
 //IMUSensor_BNO055 imu_bno055("imu_bno055_2", IMU_I2C_ADDRESS, -1, &Serial);
-IMUSensor_BNO085 imu_bno085("imu_bno085");
+//IMUSensor_BNO085 imu_bno085("imu_bno085");
+ImuBNO08X imu_bno08x("imu_bno08x");
 //IMUSensor_GY87 imu_bno055("imu_gy87", true, IMU_INTERRUPT_PIN);
 //IMUSensor_ICM20948 imu_icm20948("imu_icm20948", ICM20948_I2C_ADDRESS, IMU_INTERRUPT_PIN, &Serial);
 SmartKayak kayak;
 PowerButton powerButton(BUTTON1_PIN);
 AmperikaCRLog SDlog(SD_CS, SD_SCK, SD_MISO, SD_MOSI);
 ChinaMotor motor(MOTOR_PWM);
-IIMU* imu_sensor = &imu_bno085;
+ImuSensor* imu_sensor = &imu_bno08x;
 
 class LogButton: public ButtonDriver, public ILogSwitch {
     private:
@@ -535,7 +539,7 @@ void processCommand(const char* cmd) {
         }
     }
     else if(strcmp(cmd, CMD_MAG_CALIBRATE) == 0) {
-        imu_sensor->calibrateCompass();
+//        imu_sensor->calibrateCompass();
     }
     else if(strcmp(cmd, CMD_PADDLE_CALIBRATE_BLADE_ANGLE_LEFT) == 0) {
         paddle.calibrateBladeAngle(LEFT_BLADE);
@@ -617,6 +621,7 @@ class PaddleEventHandler: public SP_EventHandler {
 PaddleEventHandler paddleEventHandler;
 TFTSmallDisplay kayakTFTDisplay;
 
+/*
 void setMagnitometerCalibration() {
     float offset[3] = {0, 0, 0};
     float scale[3] = {1, 1, 1};
@@ -633,6 +638,7 @@ void setMagnitometerCalibration() {
     imuCalibrationData.magSI[2] = 0.002007;
     imu_sensor->setCalibrationData(imuCalibrationData,true);
 }
+    */
 
 static void IRAM_ATTR loadCellDataReady() {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -678,8 +684,8 @@ void setup() {
     Serial.println("Paddle initialized");
     
     Serial.println("Starting IMU initialization...");
-//    imu_sensor->setFrequency(IMU_FREQUENCY);
-    imu_sensor->begin();
+    imu_bno08x.begin(&Wire,IMU_I2C_ADDRESS, IMU_INTERRUPT_PIN, IMU_RESET_PIN);
+    imu_bno08x.setOrientationFrequency(IMU_FREQUENCY);
     Serial.println("IMU initialized");
     
     Serial.println("Starting kayak initialization...");

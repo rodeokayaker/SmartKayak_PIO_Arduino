@@ -2,7 +2,8 @@
 #include "SmartPaddleServer.h"
 //#include "IMUSensor_GY85.h"
 //#include "IMUSensor_GY87.h"
-#include "IMUSensor_BNO085.h"
+//#include "IMUSensor_BNO085.h"
+#include "ImuBNO08X.h"
 #include "HX711.h"
 #include "Wire.h"
 #include "esp_log.h"
@@ -26,9 +27,10 @@ constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
 constexpr int RIGHT_LOADCELL_SCK_PIN = 3;
 constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
 constexpr int LEFT_LOADCELL_SCK_PIN = 6;
-constexpr int I2C_SDA = 9;
-constexpr int I2C_SCL = 10;
-constexpr int INTERRUPT_PIN = -1; //0;
+constexpr int I2C_SDA = IMU_SDA;
+constexpr int I2C_SCL = IMU_SCL;
+constexpr int INTERRUPT_PIN = IMU_INTA; //0;
+constexpr int RESET_PIN = IMU_RST;
 constexpr int POWER_PIN = 20;
 constexpr int SWITCH_OFF_PIN = 4;
 constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
@@ -54,7 +56,7 @@ TaskHandle_t serialTaskHandle = NULL;
 LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
-IMUSensor_BNO085 imuSensor("IMU_PADDLE_MAIN_BNO085",(uint8_t)0x4A, INTERRUPT_PIN); 
+ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -226,44 +228,7 @@ void processCommand(const char* cmd) {
        Serial.println("LOAD Calibration: ");
         Serial.printf("Left: factor = %.3f, offset = %d\n", leftCell.getCalibrationData().calibrationFactor, leftCell.getCalibrationData().offset);
         Serial.printf("Right: factor = %.3f, offset = %d\n", rightCell.getCalibrationData().calibrationFactor, rightCell.getCalibrationData().offset);
-        Serial.println("IMU Calibration: ");
-        Serial.print("Accel Scale: ");
-        Serial.print(imuSensor.getCalibrationData().accelScale[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().accelScale[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().accelScale[2]);
-        Serial.print("Accel Offset: ");
-        Serial.print(imuSensor.getCalibrationData().accelOffset[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().accelOffset[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().accelOffset[2]);
-        Serial.print("Gyro Scale: ");
-        Serial.print(imuSensor.getCalibrationData().gyroScale[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().gyroScale[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().gyroScale[2]);
-        Serial.print("Gyro Offset: ");
-        Serial.print(imuSensor.getCalibrationData().gyroOffset[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().gyroOffset[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().gyroOffset[2]);
-        Serial.print("Mag Scale: ");
-        Serial.print(imuSensor.getCalibrationData().magScale[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().magScale[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().magScale[2]);    
-        Serial.print("Mag Offset: ");
-        Serial.print(imuSensor.getCalibrationData().magOffset[0]);
-        Serial.print(", ");
-        Serial.print(imuSensor.getCalibrationData().magOffset[1]);
-        Serial.print(", ");
-        Serial.println(imuSensor.getCalibrationData().magOffset[2]);
-        
+
         // Добавляем статус BLE
         Serial.println("\nBLE Status:");
         Serial.printf("Connected: %s\n", paddle.connected() ? "Yes" : "No");
@@ -347,6 +312,7 @@ void setup() {
     }
     Wire.end();
     Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.setClock(400000);
     
     Serial.println("\nSmart Paddle Initializing...");
     
@@ -357,7 +323,7 @@ void setup() {
     // Инициализация IMU
 
     imuSensor.setInterruptPin(INTERRUPT_PIN);
-    imuSensor.begin();
+    imuSensor.begin(&Wire, 0x4B, INTERRUPT_PIN, RESET_PIN);
 
     // Инициализация Весла
     
@@ -376,11 +342,7 @@ void setup() {
     Serial.printf("Paddle ID: %08X\n", paddleId);
     
     // Проверка калибровки
-    if(!imuSensor.isCalibrationValid()) {
-        Serial.println("\n*** WARNING: IMU calibration required! ***");
-        Serial.println("Current calibration data is missing or outdated.");
-        Serial.println("Please run 'calibrate_imu' command to perform calibration.");
-    } 
+
 
     if(!leftCell.isCalibrationValid() || !rightCell.isCalibrationValid()) {
         Serial.println("\n*** WARNING: Load cell calibration required! ***");

@@ -395,6 +395,7 @@ String SP_MessageProcessor::createSpecsMessage(const PaddleSpecs& specs) {
     return msg.serialize();
 }
 
+/*
 String SP_MessageProcessor::createMagnetometerCalibrationDataMessage(const IMUCalibData& calibData) {
     SP_Data msg(SP_Protocol::DataTypes::MAGNETOMETER_CALIBRATION);
     msg.value[SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X] = calibData.magOffset[0];
@@ -413,6 +414,7 @@ String SP_MessageProcessor::createMagnetometerCalibrationDataMessage(const IMUCa
     
     return msg.serialize();
 }
+*/
 
 String SP_MessageProcessor::createStatusMessage(const PaddleStatus& status) {
     SP_StatusMessage msg;

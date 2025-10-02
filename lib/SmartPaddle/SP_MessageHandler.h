@@ -1,7 +1,8 @@
 #pragma once
 #include "SP_Message.h"
 #include "SP_Types.h"
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 #include "InterfaceLoadCell.h"
 
 class SP_MessageHandler {

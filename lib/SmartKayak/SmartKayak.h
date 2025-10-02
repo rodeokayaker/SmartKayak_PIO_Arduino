@@ -67,8 +67,7 @@ class SmartKayak{
     SmartPaddle* paddle;
     IMotorDriver* motorDriver;
     IModeSwitch* modeSwitch;
-    IIMU* imu;
-    uint32_t imuFrequency;
+    ImuSensor* imu;
     int nullLoadLeft;
     int nullLoadRight;
 
@@ -106,16 +105,11 @@ public:
     void begin();
 
     void update();
-    void updateIMU();
 
     void setPaddle(SmartPaddle* paddle);
     void setMotorDriver(IMotorDriver* motorDriver);
     void setModeSwitch(IModeSwitch* modeSwitch);
-    void setIMU(IIMU* imu, uint32_t frequency);
-    void logState(ILogInterface* logger);
-
-    void logVizualizeSerial();
-    void logVizualizeMag();
+    void setIMU(ImuSensor* imu, uint32_t frequency);
 
     void logCall(ILogInterface* logger, LogMode logMode, int* loadCell=nullptr, int* externalForce=nullptr);
 

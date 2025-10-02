@@ -12,6 +12,8 @@
 #define RESET_UP_CHECK
 #define HX711_USE_INTERRUPT
 
+#define IMU_DEFAULT_FREQUENCY 100
+
 
 namespace SPServer_Default_Frequencies {
     const uint16_t BLE_SEND_FREQUENCY = 10;
@@ -26,7 +28,7 @@ class SmartPaddleBLEServer : public SmartPaddle {
 private:
 
 //Sensors
-    IIMU* imu;
+    ImuSensor* imu;
     ILoadCell* loads[2];
     loadData lastLoadData;
 
@@ -74,8 +76,7 @@ private:
     uint16_t bleSendFrequency;           
     uint16_t bleReceiveFrequency;
     uint16_t loadCellFrequency;
-    uint16_t imuFrequency;
-    uint16_t orientationFrequency;
+
     
     void setTrustedDevice(BLEAddress* address);
     void loadTrustedDevice();
@@ -89,7 +90,6 @@ private:
 
     void startAdvertising(BLEAdvertising* advertising);
 
-    bool updateIMU();
     bool updateLoads();
     void updateBLE();    
 
@@ -106,7 +106,7 @@ public:
     void setPaddleID(uint32_t id){specs.paddleID=id;}
     void setPaddleType(PaddleType type){specs.paddleType=type;}    
 
-    void setIMU(IIMU* imuSensor){imu=imuSensor;}
+    void setIMU(ImuSensor* imuSensor){imu=imuSensor;}
     void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
 
     void disconnect() override;               // Disconnect paddle

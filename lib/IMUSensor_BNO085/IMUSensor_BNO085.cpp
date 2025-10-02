@@ -237,9 +237,9 @@ bool IMUSensor_BNO085::readData() {
             // Проверка и сохранение калибровки
             checkAndSaveCalibration();
             return true;
-        } else {
+//        } else {
 //            Serial.printf("Imu no vector\n");
-        }
+//        }
     } else {
 //        Serial.printf("Imu no data\n");
     }

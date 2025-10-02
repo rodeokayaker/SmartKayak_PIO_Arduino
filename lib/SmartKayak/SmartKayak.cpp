@@ -1,5 +1,6 @@
 #include "SmartKayak.h"
-#include "InterfaceIMU.h"
+//#include "InterfaceIMU.h"
+#include "ImuSensor.h"
 #include "Arduino.h"
 #include "SP_Quaternion.h"
 #define POWER_LOW_SCALE 1.2f
@@ -9,100 +10,78 @@
 #define IMU_STACK_SIZE 4096
 #define MAGNETOMETER_STACK_SIZE 4096
 
-// Объявляем глобальную переменную в начале файла
 SmartKayak* mainKayak = nullptr;
 
-// Функция прерывания вне класса
-void IRAM_ATTR dmpDataReady() {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    vTaskNotifyGiveFromISR(mainKayak->imuTaskHandle, &xHigherPriorityTaskWoken);
-    if (xHigherPriorityTaskWoken) {
-        portYIELD_FROM_ISR();
+//---------------------------------TEMPORARY FIX---------------------------------
+
+void FIXROTATIONVECTOR(float& q0, float& q1, float& q2, float& q3, uint8_t how = 0){
+    if (how==0) return;
+    
+    // Сохраняем исходный кватернион
+    float orig_q0 = q0, orig_q1 = q1, orig_q2 = q2, orig_q3 = q3;
+    
+    // Кватернион поворота вокруг Z: [w, 0, 0, z]
+    float rot_w, rot_z;
+    
+    switch (how) {
+        case 1: // Поворот на 90° против часовой стрелки
+            rot_w = 0.70710678f;   // cos(π/4)
+            rot_z = 0.70710678f;   // sin(π/4)
+            break;
+        case 2: // Поворот на 180°
+            rot_w = 0.0f;          // cos(π/2)
+            rot_z = 1.0f;          // sin(π/2)
+            break;
+        case 3: // Поворот на 270° против часовой стрелки
+            rot_w = -0.70710678f;  // cos(3π/4)
+            rot_z = 0.70710678f;   // sin(3π/4)
+            break;
+        default:
+            return; // Неизвестный код поворота
     }
-}
+    
+    // Умножение кватернионов: result = rotation * original
+    // rotation = [rot_w, 0, 0, rot_z], original = [orig_q0, orig_q1, orig_q2, orig_q3]
+    q0 = rot_w * orig_q0 - rot_z * orig_q3;
+    q1 = rot_w * orig_q1 + rot_z * orig_q2;
+    q2 = rot_w * orig_q2 - rot_z * orig_q1;
+    q3 = rot_w * orig_q3 + rot_z * orig_q0;
+} 
+
+
 
 class SmartKayakRTOS{
     private:
     
-    static void imuTask(void *pvParameters) {        
-        SmartKayak* kayak = (SmartKayak*)pvParameters;
-        if (!kayak->imu){
-            vTaskDelete(NULL);
-            return;
-        }
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-        uint32_t frequency = kayak->imuFrequency;
-        TickType_t xFrequency = (frequency>0)?pdMS_TO_TICKS(1000/frequency):0;    
-        while(1) {
-            if (xFrequency==0){
-               // Ждем уведомления от прерывания
-                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            }
+    static void onIMUData(const IMUData& data) {
+        return;
+    }
+    
+    static void onOrientation(const OrientationData& data) {
+    
+    
+        mainKayak->kayakOrientationQuat[0]=data.q0;
+        mainKayak->kayakOrientationQuat[1]=data.q1;
+        mainKayak->kayakOrientationQuat[2]=data.q2;
+        mainKayak->kayakOrientationQuat[3]=data.q3;
 
-            kayak->updateIMU();
-
-            if (xFrequency>0)
-                xTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-        }
+                //---------------------------------TEMPORARY FIX---------------------------------
+                FIXROTATIONVECTOR(mainKayak->kayakOrientationQuat[0], mainKayak->kayakOrientationQuat[1], mainKayak->kayakOrientationQuat[2], mainKayak->kayakOrientationQuat[3], 3);
+                //---------------------------------TEMPORARY FIX---------------------------------
+        
     }
 
-
-    static void magnetometerTask(void *pvParameters) {
-        SmartKayak* kayak = (SmartKayak*)pvParameters;
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-        if (!kayak->imu){
-            vTaskDelete(NULL);
-            return;
-        }
-        uint32_t frequency = kayak->imu->magnetometerFrequency();
-        if (frequency == 0){
-            vTaskDelete(NULL);
-            return;
-        }
-        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
-        while(1) {
-            kayak->imu->magnetometerUpdate();
- //           Serial.printf("Magnetometer task\n");
-            vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        }
-    }
 
     public:
     //All tasks setup and start
     static void startTasks(SmartKayak* kayak) {
         mainKayak = kayak;  // Используем глобальную переменную
 
+        kayak->imu->onIMUData(SmartKayakRTOS::onIMUData);
+        kayak->imu->onOrientation(SmartKayakRTOS::onOrientation);
+
+        kayak->imu->startServices();
     
-        xTaskCreatePinnedToCore(
-            SmartKayakRTOS::imuTask,
-            "IMU",
-            IMU_STACK_SIZE,
-            kayak,
-            1,
-            &kayak->imuTaskHandle,
-            1
-        );
-
-/*
-        xTaskCreatePinnedToCore(
-            SmartKayakRTOS::magnetometerTask,
-            "Magnetometer",
-            MAGNETOMETER_STACK_SIZE,
-            kayak,
-            1,
-            &kayak->magnetometerTaskHandle,
-            1
-        );
-        */
-
-        // Установка прерывания для IMU на interruptPIN если он задан
-
-        if (kayak->imu && kayak->imu->DMPEnabled() && kayak->imu->interruptPIN()>=0){
-            pinMode(kayak->imu->interruptPIN(), INPUT);
-            attachInterrupt(digitalPinToInterrupt(kayak->imu->interruptPIN()), dmpDataReady, RISING);
-            Serial.printf("IMU interrupt pin initialized: %d\n", kayak->imu->interruptPIN());
-        }
 
     }
 };
@@ -127,11 +106,9 @@ currentForceGramms(0)
 
 void SmartKayak::begin() {
 
-    if (imu){
-        imuFrequency = imu->getFrequency();
-        if (imu->DMPEnabled()&&imu->interruptPIN()>=0)
-            imuFrequency = 0;
-    }
+//    imu->begin();
+//    imu->setOrientationFrequency(100);
+
 }
 
 void getPaddleAngles(const SP_Math::Quaternion& currentPaddleQ, const SP_Math::Quaternion& currentKayakQ, 
@@ -212,7 +189,7 @@ BladeSideType getLowerBladeSide(const SP_Math::Quaternion& paddleQ, int Y_axis_s
     if (Y_axis_sign == 0) {
         return BladeSideType::ALL_BLADES;
     }
-    // Получаем текущее направление оси Y весла в глобальной системе
+    // Получаем текущее направление оси весла направленного на правую лопатку в глобальной системе
     SP_Math::Vector paddleYAxis(0, Y_axis_sign, 0);
     SP_Math::Vector globalYAxis = paddleQ.rotate(paddleYAxis);
 
@@ -223,42 +200,6 @@ BladeSideType getLowerBladeSide(const SP_Math::Quaternion& paddleQ, int Y_axis_s
     }
 
 }
-
-//---------------------------------TEMPORARY FIX---------------------------------
-
-void FIXROTATIONVECTOR(float& q0, float& q1, float& q2, float& q3, uint8_t how = 0){
-    if (how==0) return;
-    
-    // Сохраняем исходный кватернион
-    float orig_q0 = q0, orig_q1 = q1, orig_q2 = q2, orig_q3 = q3;
-    
-    // Кватернион поворота вокруг Z: [w, 0, 0, z]
-    float rot_w, rot_z;
-    
-    switch (how) {
-        case 1: // Поворот на 90° против часовой стрелки
-            rot_w = 0.70710678f;   // cos(π/4)
-            rot_z = 0.70710678f;   // sin(π/4)
-            break;
-        case 2: // Поворот на 180°
-            rot_w = 0.0f;          // cos(π/2)
-            rot_z = 1.0f;          // sin(π/2)
-            break;
-        case 3: // Поворот на 270° против часовой стрелки
-            rot_w = -0.70710678f;  // cos(3π/4)
-            rot_z = 0.70710678f;   // sin(3π/4)
-            break;
-        default:
-            return; // Неизвестный код поворота
-    }
-    
-    // Умножение кватернионов: result = rotation * original
-    // rotation = [rot_w, 0, 0, rot_z], original = [orig_q0, orig_q1, orig_q2, orig_q3]
-    q0 = rot_w * orig_q0 - rot_z * orig_q3;
-    q1 = rot_w * orig_q1 + rot_z * orig_q2;
-    q2 = rot_w * orig_q2 - rot_z * orig_q1;
-    q3 = rot_w * orig_q3 + rot_z * orig_q0;
-} 
 
 
 void SmartKayak::update() {
@@ -404,20 +345,6 @@ void SmartKayak::update() {
 }
 
 
-void SmartKayak::updateIMU() {
-    imu->readData();
-    OrientationData orient = imu->updateOrientation();
-
-    //---------------------------------TEMPORARY FIX---------------------------------
-    FIXROTATIONVECTOR(orient.q0, orient.q1, orient.q2, orient.q3, 3);
-    //---------------------------------TEMPORARY FIX---------------------------------
-
-    kayakOrientationQuat[0]=orient.q0;
-    kayakOrientationQuat[1]=orient.q1;
-    kayakOrientationQuat[2]=orient.q2;
-    kayakOrientationQuat[3]=orient.q3;
-}
-
 void SmartKayak::setPaddle(SmartPaddle* paddle) {
     this->paddle = paddle;
 }
@@ -430,48 +357,8 @@ void SmartKayak::setModeSwitch(IModeSwitch* modeSwitch) {
     this->modeSwitch = modeSwitch;
 }
 
-void SmartKayak::setIMU(IIMU* imu, uint32_t frequency) {
+void SmartKayak::setIMU(ImuSensor* imu, uint32_t frequency) {
     this->imu = imu;
-    this->imuFrequency = frequency;
-//    imu->setFrequency(frequency);
-}
-
-void SmartKayak::logState(ILogInterface* logger) {
-
-    logger->printf("%d;",millis());
-    logger->logIMU(imu->getData());
-    OrientationData kayakOrientation = imu->getOrientation();
-    logger->logOrientation(kayakOrientation);
-    logger->logIMU(paddle->getIMUData());
-    logger->logOrientation(paddle->getOrientationData());
-    logger->logLoads(paddle->getLoadData());
-    uint8_t mode=(uint8_t)modeSwitch->getMode();
-    logger->printf("%d;",mode);
-    logger->printf("%d;",motorDriver->getForce());
-    logger->flush();
-
-}
-
-
-
-void SmartKayak::logVizualizeSerial(){
-    IMUData kayakIMUData = imu->getData();
-    IMUData paddleIMUData = paddle->getIMUData();
-    Serial.printf("Kayak,%f,%f,%f,%f\n", kayakIMUData.q0, kayakIMUData.q1, kayakIMUData.q2, kayakIMUData.q3);
-//    Serial.printf("Paddle,%f,%f,%f,%f\n", paddleIMUData.q0, paddleIMUData.q1, paddleIMUData.q2, paddleIMUData.q3);
-    SP_Math::Quaternion kayakQ(kayakIMUData.q0,kayakIMUData.q1,kayakIMUData.q2,kayakIMUData.q3);
-    SP_Math::Quaternion paddleQ(paddleIMUData.q0,paddleIMUData.q1,paddleIMUData.q2,paddleIMUData.q3);
-    SP_Math::Quaternion kayakPaddleQ = paddleQ;
-    Serial.printf("Paddle,%f,%f,%f,%f\n", kayakPaddleQ.x(), kayakPaddleQ.y(), kayakPaddleQ.z(), kayakPaddleQ.w());
-}
-
-void SmartKayak::logVizualizeMag(){
-    IMUData kayakIMUData = imu->getData();
-    OrientationData kayakOrientation = imu->getOrientation();
-    Serial.printf("DMP,%f,%f,%f,%f\n", kayakIMUData.q0, kayakIMUData.q1, kayakIMUData.q2, kayakIMUData.q3);
-    Serial.printf("Fusion,%f,%f,%f,%f\n", kayakOrientation.q0, kayakOrientation.q1, kayakOrientation.q2, kayakOrientation.q3);
-    Serial.printf("Mag,%f,%f,%f\n", kayakIMUData.mx, kayakIMUData.my, kayakIMUData.mz);
-    Serial.printf("Accel,%f,%f,%f\n", kayakIMUData.ax, kayakIMUData.ay, kayakIMUData.az);
 
 }
 
@@ -490,7 +377,7 @@ void SmartKayak::logCall(ILogInterface* logger, LogMode logMode, int* loadCell, 
         case LogMode::LOG_MODE_OFF:
             break;
         case LogMode::LOG_MODE_KAYAK_MAG:
-            imuData = imu->getData();
+            imu->getData(imuData);
             logger->printf("%d\t%d\t%d\n", imuData.mag_x, imuData.mag_y, imuData.mag_z);
             Serial.printf("%d,%d,%d\n", imuData.mag_x, imuData.mag_y, imuData.mag_z);
 
@@ -501,7 +388,7 @@ void SmartKayak::logCall(ILogInterface* logger, LogMode logMode, int* loadCell, 
             Serial.printf("%d,%d,%d\n", imuData.mag_x, imuData.mag_y, imuData.mag_z);
             break;
         case LogMode::LOG_MODE_ALL:
-            kayakOrientation = imu->getOrientation();
+            imu->getOrientation(kayakOrientation);
 
             kayakOrientation.q0=kayakOrientationQuat[0];
             kayakOrientation.q1=kayakOrientationQuat[1];
@@ -509,7 +396,7 @@ void SmartKayak::logCall(ILogInterface* logger, LogMode logMode, int* loadCell, 
             kayakOrientation.q3=kayakOrientationQuat[3];
 
             paddleOrientation = paddle->getOrientationData();
-            imuData=imu->getData();
+            imu->getData(imuData);
             paddleIMUData=paddle->getIMUData();
             loads = paddle->getLoadData();
 

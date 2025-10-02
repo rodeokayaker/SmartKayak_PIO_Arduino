@@ -80,7 +80,7 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         Serial.printf("Calibrate compass command\n");
         paddle->setLogStream(paddle->getSerial());
         paddle->sendData=false;
-        paddle->imu->calibrateCompass();
+//        paddle->imu->calibrateCompass();
         paddle->sendData=true;
         paddle->setLogStream(&Serial);
         paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Compass calibrated"));
@@ -119,20 +119,20 @@ class SPServer_MessageHandler: public SP_MessageHandler{
 
     void onSetMagnetometerCalibrationCommand(SP_Command* command, float* offset, float* softIron) override{
         Serial.printf("Set magnetometer calibration command\n");
-        IMUCalibData calibData=paddle->imu->getCalibrationData();
-        calibData.magOffset[0]=offset[0];
-        calibData.magOffset[1]=offset[1];
-        calibData.magOffset[2]=offset[2];
-        calibData.magScale[0]=softIron[0];
-        calibData.magScale[1]=softIron[1];
-        calibData.magScale[2]=softIron[2];
-        calibData.magSI[0]=softIron[3];
-        calibData.magSI[1]=softIron[4];
-        calibData.magSI[2]=softIron[5];
+//        IMUCalibData calibData=paddle->imu->getCalibrationData();
+//        calibData.magOffset[0]=offset[0];
+//        calibData.magOffset[1]=offset[1];
+//        calibData.magOffset[2]=offset[2];
+//        calibData.magScale[0]=softIron[0];
+//        calibData.magScale[1]=softIron[1];
+//        calibData.magScale[2]=softIron[2];
+//        calibData.magSI[0]=softIron[3];
+//        calibData.magSI[1]=softIron[4];
+ //       calibData.magSI[2]=softIron[5];
 //        Serial.printf("Magnetometer calibration data: %f, %f, %f\n", calibData.magOffset[0], calibData.magOffset[1], calibData.magOffset[2]);
 //        Serial.printf("Magnetometer soft iron data: %f, %f, %f\n", calibData.magScale[0], calibData.magScale[1], calibData.magScale[2]);
 //        Serial.printf("Magnetometer soft iron data: %f, %f, %f\n", calibData.magSI[0], calibData.magSI[1], calibData.magSI[2]);
-        paddle->imu->setCalibrationData(calibData,true);
+//        paddle->imu->setCalibrationData(calibData,true);
         
     }
 
@@ -146,28 +146,10 @@ class SPServer_MessageHandler: public SP_MessageHandler{
 
     void onSendCalibrationDataCommand(SP_Command* command) override{
         Serial.printf("Send calibration data command\n");
-        paddle->getSerial()->sendString(SP_MessageProcessor::createMagnetometerCalibrationDataMessage(paddle->imu->getCalibrationData()));
+//        paddle->getSerial()->sendString(SP_MessageProcessor::createMagnetometerCalibrationDataMessage(paddle->imu->getCalibrationData()));
     }
 };
 
-
-bool SmartPaddleBLEServer::updateIMU() {
-    bool updated = false;
-    if(imu) {
-        // Получаем данные IMU только если он доступен
-
-        if (imu->readData() && imu->DMPValid()){
-            IMUData imuData = imu->getData();
-            imuQueue.send(imuData);
-            updated = true;
-            // Получаем данные ориентации только если IMU доступен
-            OrientationData orientation = imu->getOrientation();
-            orientationQueue.send(orientation);
-        }
-    }
-    // Если IMU недоступен, не отправляем никаких данных в очереди
-    return updated;
-}
 
 void interruptHandler(){
     Serial.printf("IMU interrupt\n");
@@ -177,33 +159,23 @@ class SPServerRTOS{
     private:
     static SmartPaddleBLEServer* mainPaddle;
 
-    static void imuTask(void *pvParameters) {        
-        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
-        if (!paddle->imu){
-            vTaskDelete(NULL);
-            return;
-        }
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-        uint32_t frequency = paddle->imuFrequency;
-        TickType_t xFrequency = (frequency>0)?pdMS_TO_TICKS(1000/frequency):0;    
-        while(1) {
-            if (xFrequency==0){
-               // Ждем уведомления от прерывания
-                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            } else 
-                xTaskDelayUntil(&xLastWakeTime, xFrequency);
-                
-            if (paddle->connected()) {
-                if (paddle->sendData) {
-                    if (paddle->updateIMU()){
-                        // Разбудить BLESend задачу
-                        xTaskNotifyGive(paddle->bleSendTaskHandle);
-                    }
-                }
+    static void onIMUData(const IMUData &data){
+        if (mainPaddle->connected()) {
+            if (mainPaddle->sendData) {
+                mainPaddle->imuQueue.send(data);
+                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
             }
-
-
         }
+    }
+
+    static void onOrientationData(const OrientationData &data){
+        if (mainPaddle->connected()) {
+            if (mainPaddle->sendData) {
+                mainPaddle->orientationQueue.send(data);
+                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+            }
+        }
+
     }
 
 // Задача чтения тензодатчиков
@@ -236,25 +208,7 @@ class SPServerRTOS{
             }
         }
     }  
-
-    static void orientationTask(void *pvParameters) {
-        SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-        uint32_t frequency = paddle->imu->getFrequency();
-        if (frequency == 0){
-            vTaskDelete(NULL);
-            return;
-        }
-        const TickType_t xFrequency = pdMS_TO_TICKS(1000/frequency);
-        while(1) {
-            uint32_t start = millis();
-            if (paddle->connected() && paddle->sendData) {
-                paddle->imu->updateOrientation();
-            }
-            vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        }
-    }
-
+/*
     static void magnetometerTask(void *pvParameters) {
         SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
         TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -276,6 +230,7 @@ class SPServerRTOS{
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
         }
     }
+        */
 
     // Задача обработки BLE
 
@@ -313,14 +268,6 @@ class SPServerRTOS{
     }
 
 
-    static void IRAM_ATTR dmpDataReady() {
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        vTaskNotifyGiveFromISR(mainPaddle->imuTaskHandle, &xHigherPriorityTaskWoken);
-        if (xHigherPriorityTaskWoken) {
-            portYIELD_FROM_ISR();
-        }
-    }
-
     static void IRAM_ATTR loadCellDataReady() {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         vTaskNotifyGiveFromISR(mainPaddle->loadCellTaskHandle, &xHigherPriorityTaskWoken);
@@ -333,6 +280,11 @@ class SPServerRTOS{
     //All tasks setup and start
     static void startTasks(SmartPaddleBLEServer* paddle) {
         mainPaddle = paddle;
+
+        paddle->imu->onOrientation(SPServerRTOS::onOrientationData);
+        paddle->imu->onIMUData(SPServerRTOS::onIMUData);
+        paddle->imu->startServices();
+
         xTaskCreatePinnedToCore(
             SPServerRTOS::loadCellTask,
             "LoadCell",
@@ -343,26 +295,8 @@ class SPServerRTOS{
             0
         );
     
-        xTaskCreatePinnedToCore(
-            SPServerRTOS::imuTask,
-            "IMU",
-            IMU_STACK_SIZE,
-            paddle,
-            1,
-            &paddle->imuTaskHandle,
-            0
-        );
 
-        xTaskCreatePinnedToCore(
-            SPServerRTOS::orientationTask,
-            "Orientation",
-            ORIENTATION_STACK_SIZE,
-            paddle,
-            1,
-            &paddle->orientationTaskHandle,
-            0
-        );
-
+/*
         xTaskCreatePinnedToCore(
             SPServerRTOS::magnetometerTask,
             "Magnetometer",
@@ -372,6 +306,7 @@ class SPServerRTOS{
             &paddle->magnetometerTaskHandle,
             0
         );
+        */
         
         // Задачи на ядре 1
         xTaskCreatePinnedToCore(
@@ -393,14 +328,6 @@ class SPServerRTOS{
             &paddle->bleReceiveTaskHandle,
             1
         );
-
-        // Установка прерывания для IMU на interruptPIN если он задан
-
-        if (mainPaddle->imu && mainPaddle->imu->DMPEnabled() && mainPaddle->imu->interruptPIN()>=0){
-            pinMode(mainPaddle->imu->interruptPIN(), INPUT);
-            attachInterrupt(digitalPinToInterrupt(mainPaddle->imu->interruptPIN()), SPServerRTOS::dmpDataReady, RISING);
-            Serial.printf("IMU interrupt pin initialized: %d\n", mainPaddle->imu->interruptPIN());
-        }
 
         #ifdef HX711_USE_INTERRUPT
         if (mainPaddle->loads[0] && mainPaddle->loads[0]->getDRDYPin()>=0){
@@ -496,8 +423,6 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
       bleSendFrequency(SPServer_Default_Frequencies::BLE_SEND_FREQUENCY),
       bleReceiveFrequency(SPServer_Default_Frequencies::BLE_RECEIVE_FREQUENCY),
       loadCellFrequency(0),
-      imuFrequency(0),
-      orientationFrequency(0),
       time_to_send_specs(0),
       time_to_send_paddle_orientation(0),
       do_connect(false),
@@ -661,13 +586,11 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
         loadCellFrequency = (loads[1]->getFrequency()<loadCellFrequency)?loads[1]->getFrequency():loadCellFrequency;
     #endif
 
-    if (imu){
-        imuFrequency = imu->getFrequency();
-        if (imu->DMPEnabled()&&imu->interruptPIN()>=0)
-            imuFrequency = 0;
-    }
-    
-    orientationFrequency = (imu)?imu->getFrequency():0;
+    if (specs.imuFrequency == 0)
+        specs.imuFrequency = IMU_DEFAULT_FREQUENCY;
+    imu->setIMUFrequency(specs.imuFrequency);
+    imu->setOrientationFrequency(specs.imuFrequency);
+
     // Start RTOS tasks
  //   SPServerRTOS::startTasks(this);
 
@@ -893,7 +816,9 @@ void SmartPaddleBLEServer::shutdown() {
 }
 
 IMUData SmartPaddleBLEServer::getIMUData(){
-    return imu->getData();
+    IMUData data;
+    imu->getData(data);
+    return data;
 }
 
 loadData SmartPaddleBLEServer::getLoadData(){
@@ -901,14 +826,17 @@ loadData SmartPaddleBLEServer::getLoadData(){
 }
 
 OrientationData SmartPaddleBLEServer::getOrientationData(){
-    return imu->getOrientation();
+    OrientationData data;
+    imu->getOrientation(data);
+    return data;
 }
 
 void SmartPaddleBLEServer::calibrateBladeAngle(BladeSideType blade_side) {
     if (!imu) return;
 
     // Получаем текущий кватернион ориентации
-    IMUData data = imu->getData();
+    IMUData data;
+    imu->getData(data);
     SP_Math::Quaternion q(data.q0, data.q1, data.q2, data.q3);
 
     // Вектор вертикально вверх в глобальной системе координат
