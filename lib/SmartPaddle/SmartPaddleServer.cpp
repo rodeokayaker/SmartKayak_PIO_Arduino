@@ -56,12 +56,11 @@ class SPServer_MessageHandler: public SP_MessageHandler{
         paddle->sendData=false;
         paddle->setLogStream(paddle->getSerial());   
         if (bladeSide == LEFT_BLADE){
-            paddle->loads[1]->tare();
+            paddle->loads->tare(BladeSideType::LEFT_BLADE);
         } else if (bladeSide == RIGHT_BLADE){
-            paddle->loads[0]->tare();
+            paddle->loads->tare(BladeSideType::RIGHT_BLADE);
         } else if (bladeSide == ALL_BLADES){
-            paddle->loads[0]->tare();
-            paddle->loads[1]->tare();
+            paddle->loads->tare(BladeSideType::ALL_BLADES);
         }
         paddle->setLogStream(&Serial);
         paddle->getSerial()->sendString(SP_MessageProcessor::createResponseMessage(command->command.c_str(), true, "Loads tared"));
@@ -178,7 +177,17 @@ class SPServerRTOS{
 
     }
 
+    static void onLoadData(const loadData &data, BladeSideType bladeSide){
+        if (mainPaddle->connected()) {
+            if (mainPaddle->sendData) {
+                mainPaddle->loadsensorQueue.send(data);
+                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+            }
+        }
+    }
+
 // Задача чтения тензодатчиков
+/*
     static void loadCellTask(void *pvParameters) {
 
         SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
@@ -208,6 +217,7 @@ class SPServerRTOS{
             }
         }
     }  
+        */
 /*
     static void magnetometerTask(void *pvParameters) {
         SmartPaddleBLEServer* paddle = (SmartPaddleBLEServer*)pvParameters;
@@ -267,7 +277,7 @@ class SPServerRTOS{
         }
     }
 
-
+/*
     static void IRAM_ATTR loadCellDataReady() {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         vTaskNotifyGiveFromISR(mainPaddle->loadCellTaskHandle, &xHigherPriorityTaskWoken);
@@ -275,6 +285,8 @@ class SPServerRTOS{
             portYIELD_FROM_ISR();
         }
     }
+
+    */
 
     public:
     //All tasks setup and start
@@ -285,7 +297,10 @@ class SPServerRTOS{
         paddle->imu->onIMUData(SPServerRTOS::onIMUData);
         paddle->imu->startServices();
 
-        xTaskCreatePinnedToCore(
+        paddle->loads->onLoadData(SPServerRTOS::onLoadData, false);
+        paddle->loads->startServices();
+
+/*        xTaskCreatePinnedToCore(
             SPServerRTOS::loadCellTask,
             "LoadCell",
             SENSOR_STACK_SIZE,
@@ -294,7 +309,7 @@ class SPServerRTOS{
             &paddle->loadCellTaskHandle,
             0
         );
-    
+*/    
 
 /*
         xTaskCreatePinnedToCore(
@@ -329,6 +344,8 @@ class SPServerRTOS{
             1
         );
 
+        /*
+
         #ifdef HX711_USE_INTERRUPT
         if (mainPaddle->loads[0] && mainPaddle->loads[0]->getDRDYPin()>=0){
             attachInterrupt(digitalPinToInterrupt(mainPaddle->loads[0]->getDRDYPin()), SPServerRTOS::loadCellDataReady, FALLING);
@@ -339,6 +356,7 @@ class SPServerRTOS{
             Serial.printf("Load cell 1 interrupt pin initialized: %d\n", mainPaddle->loads[1]->getDRDYPin());
         }
         #endif
+        */
     }
 };
 
@@ -357,28 +375,28 @@ void SmartPaddleBLEServer::calibrateLoads(BladeSideType blade_side){
     switch(blade_side){
         case LEFT_BLADE:
             logStream->println("LEFT BLADE CALIBRATION");        
-            if (loads[1])
-                loads[1]->calibrate(); else
+            if (loads)
+                loads->calibrate(BladeSideType::LEFT_BLADE,1000); else
                 logStream->println("No left blade");
             break;
         case RIGHT_BLADE:
             logStream->println("RIGHT BLADE CALIBRATION");
-            if (loads[0])
-                loads[0]->calibrate(); else
+            if (loads)
+                loads->calibrate(BladeSideType::RIGHT_BLADE,1000); else
                 logStream->println("No right blade");
             break;
         case ALL_BLADES:
             logStream->println("ALL BLADE CALIBRATION");        
-            if (loads[0])
-                loads[0]->calibrate(); else
-                logStream->println("No right blade");
-            if (loads[1])
-                loads[1]->calibrate(); else
-                logStream->println("No left blade");
+            if (loads)
+                loads->calibrate(BladeSideType::ALL_BLADES,1000); else
+                logStream->println("No all blades");
+
             break;
     }
     sendData=true;
 }
+
+/*
 
 bool SmartPaddleBLEServer::updateLoads(){
 
@@ -405,6 +423,7 @@ bool SmartPaddleBLEServer::updateLoads(){
     return updated;
 }
 
+*/
 
 // Конструктор класса SmartPaddle
 SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
@@ -417,7 +436,7 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
       send_specs(false),
       is_pairing(false),
       imu(nullptr),
-      loads{nullptr,nullptr},
+      loads(nullptr),
       prefsName(prefs_Name),
       send_paddle_orientation(false),
       bleSendFrequency(SPServer_Default_Frequencies::BLE_SEND_FREQUENCY),
@@ -447,10 +466,8 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
 
 void SmartPaddleBLEServer::setLogStream(Stream* stream){
     logStream = stream;
-    if (loads[0])
-        loads[0]->setLogStream(stream);
-    if (loads[1])
-        loads[1]->setLogStream(stream);
+    if (loads)
+        loads->setLogStream(stream);
     if (imu)
         imu->setLogStream(stream);
 }

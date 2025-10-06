@@ -3,14 +3,6 @@
 
 #include <Arduino.h>
 
-struct loadData {
-    float forceR;
-    float forceL;
-    int32_t forceR_raw;
-    int32_t forceL_raw;
-    uint32_t timestamp;
-};
-
 class ILoadCell {
 public:
     virtual float getForce() = 0;

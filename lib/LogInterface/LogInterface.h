@@ -3,7 +3,8 @@
 
 #include <Stream.h>
 #include <Arduino.h>
-#include "InterfaceLoadCell.h"
+//#include "InterfaceLoadCell.h"
+#include "LoadCellSet.h"
 //#include "InterfaceIMU.h"
 #include "ImuSensor.h"
 

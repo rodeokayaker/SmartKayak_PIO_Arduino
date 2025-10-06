@@ -29,7 +29,8 @@ private:
 
 //Sensors
     ImuSensor* imu;
-    ILoadCell* loads[2];
+//    ILoadCell* loads[2];
+    LoadCellSet* loads;
     loadData lastLoadData;
 
 //Preferences
@@ -90,7 +91,7 @@ private:
 
     void startAdvertising(BLEAdvertising* advertising);
 
-    bool updateLoads();
+//    bool updateLoads();
     void updateBLE();    
 
     TimerHandle_t connectTimer;
@@ -107,7 +108,8 @@ public:
     void setPaddleType(PaddleType type){specs.paddleType=type;}    
 
     void setIMU(ImuSensor* imuSensor){imu=imuSensor;}
-    void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
+//    void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
+    void setLoads(LoadCellSet* lcSet){loads=lcSet;}
 
     void disconnect() override;               // Disconnect paddle
 

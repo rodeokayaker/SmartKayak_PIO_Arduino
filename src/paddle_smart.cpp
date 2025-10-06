@@ -4,7 +4,8 @@
 //#include "IMUSensor_GY87.h"
 //#include "IMUSensor_BNO085.h"
 #include "ImuBNO08X.h"
-#include "HX711.h"
+//#include "HX711.h"
+#include "LoadCellSetHX711.h"
 #include "Wire.h"
 #include "esp_log.h"
 #include "driver/uart.h"
@@ -23,10 +24,10 @@
 
 
 // Определения пинов
-constexpr int RIGHT_LOADCELL_DOUT_PIN = 2;
-constexpr int RIGHT_LOADCELL_SCK_PIN = 3;
-constexpr int LEFT_LOADCELL_DOUT_PIN = 5;
-constexpr int LEFT_LOADCELL_SCK_PIN = 6;
+constexpr int LEFT_LOADCELL_DOUT_PIN = 2;
+constexpr int LEFT_LOADCELL_SCK_PIN = 3;
+constexpr int RIGHT_LOADCELL_DOUT_PIN = 5;
+constexpr int RIGHT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = IMU_SDA;
 constexpr int I2C_SCL = IMU_SCL;
 constexpr int INTERRUPT_PIN = IMU_INTA; //0;
@@ -53,8 +54,9 @@ TaskHandle_t serialTaskHandle = NULL;
 
 
 // Глобальные объекты
-LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
-LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
+//LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
+//LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
+LoadCellSetHX711 loadsCellSet("LoadsHX711", TWO_BLADES, ALL_BLADES);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
 ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
 
@@ -226,8 +228,8 @@ void processCommand(const char* cmd) {
     }
     else if(strcmp(cmd, CMD_STATUS) == 0) {
        Serial.println("LOAD Calibration: ");
-        Serial.printf("Left: factor = %.3f, offset = %d\n", leftCell.getCalibrationData().calibrationFactor, leftCell.getCalibrationData().offset);
-        Serial.printf("Right: factor = %.3f, offset = %d\n", rightCell.getCalibrationData().calibrationFactor, rightCell.getCalibrationData().offset);
+  //      Serial.printf("Left: factor = %.3f, offset = %d\n", leftCell.getCalibrationData().calibrationFactor, leftCell.getCalibrationData().offset);
+  //      Serial.printf("Right: factor = %.3f, offset = %d\n", rightCell.getCalibrationData().calibrationFactor, rightCell.getCalibrationData().offset);
 
         // Добавляем статус BLE
         Serial.println("\nBLE Status:");
@@ -317,8 +319,9 @@ void setup() {
     Serial.println("\nSmart Paddle Initializing...");
     
     // Инициализация тензодатчиков
-    leftCell.begin(HX711_DEFAULT_FREQUENCY);
-    rightCell.begin(HX711_DEFAULT_FREQUENCY);
+//    leftCell.begin(HX711_DEFAULT_FREQUENCY);
+//    rightCell.begin(HX711_DEFAULT_FREQUENCY);
+    loadsCellSet.begin(RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN, LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
 
     // Инициализация IMU
 
@@ -335,7 +338,8 @@ void setup() {
     paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
     // Инициализация Весла
     paddle.setIMU(&imuSensor);
-    paddle.setLoads(&rightCell, &leftCell);
+//    paddle.setLoads(&rightCell, &leftCell);
+    paddle.setLoads(&loadsCellSet);
 
  //   paddle.setLogInterface(new RGBLedInterface(4, 1, 7));
     
@@ -344,7 +348,7 @@ void setup() {
     // Проверка калибровки
 
 
-    if(!leftCell.isCalibrationValid() || !rightCell.isCalibrationValid()) {
+    if(loadsCellSet.isCalibrationValid(BladeSideType::ALL_BLADES)){
         Serial.println("\n*** WARNING: Load cell calibration required! ***");
         Serial.println("Current calibration data is missing or outdated.");
         Serial.println("Please run 'calibrate_load' command to perform calibration.");

@@ -3,7 +3,8 @@
 #include "SP_Types.h"
 //#include "InterfaceIMU.h"
 #include "ImuSensor.h"
-#include "InterfaceLoadCell.h"
+//#include "InterfaceLoadCell.h"
+#include "LoadCellSet.h"
 
 class SP_MessageHandler {
 public:
