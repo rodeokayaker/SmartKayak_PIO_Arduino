@@ -14,6 +14,7 @@
 #include "InterfaceMotor.h"
 #include "LoadCellCalibrator.h"
 #include "DisplayInterface.h"
+#include "RelativeOrientationFilter.h"
 
 
 #define SMARTKAYAK_LOG_FORCE 1
@@ -80,6 +81,9 @@ class SmartKayak{
     ForceAdapter forceAdapter;
     KayakDisplay* display;
     KayakDisplayData displayData;
+    
+    // Фильтр относительной ориентации
+    RelativeOrientationFilter orientationFilter;
 
     // Добавляем переменные для системы предвосхищения
     AnticipationState anticipationState;
@@ -139,6 +143,12 @@ public:
         successfulAnticipationCount = 0;
         falsePositiveCount = 0;
     }
+    
+    // Методы для управления фильтром ориентации
+    RelativeOrientationFilter& getOrientationFilter() { return orientationFilter; }
+    StrokePhase getCurrentStrokePhase() const { return orientationFilter.getCurrentPhase(); }
+    bool isKayakMagnetometerReliable() const { return orientationFilter.isKayakMagReliable(); }
+    bool isPaddleMagnetometerReliable() const { return orientationFilter.isPaddleMagReliable(); }
 
 
 private:

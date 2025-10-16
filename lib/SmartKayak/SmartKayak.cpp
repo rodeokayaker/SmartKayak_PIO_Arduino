@@ -299,7 +299,26 @@ void SmartKayak::update() {
     }
 
     SP_Math::Quaternion currentPaddleQ(paddleOrientation.q0,paddleOrientation.q1,paddleOrientation.q2,paddleOrientation.q3);
-    SP_Math::Quaternion paddleRelativeQuat = getRelativeOrientation(currentPaddleQ,paddle);
+    
+    // Получаем данные магнитометров
+    IMUData kayakIMU = paddle->getIMUData(); // временно берем из весла, нужно получить из IMU каяка
+    IMUData paddleIMU = paddle->getIMUData();
+    
+    SP_Math::Vector kayakMag(kayakIMU.mag_x, kayakIMU.mag_y, kayakIMU.mag_z);
+    SP_Math::Vector paddleMag(paddleIMU.mag_x, paddleIMU.mag_y, paddleIMU.mag_z);
+    
+    // ИСПОЛЬЗУЕМ НОВЫЙ ФИЛЬТР для получения относительной ориентации
+    float tempShaftAngle = 0; // временно, будет вычислен ниже
+    float tempBladeForce = 0; // временно, будет вычислен ниже
+    SP_Math::Quaternion paddleRelativeQuat = orientationFilter.update(
+        kayakOrientationQuat,
+        currentPaddleQ,
+        kayakMag,
+        paddleMag,
+        tempShaftAngle,
+        tempBladeForce
+    );
+    
     //Determine which blade is lower
     BladeSideType bladeSide = getLowerBladeSide(currentPaddleQ, paddle->getBladeAngles().YAxisDirection);
     currentBladeSide = bladeSide;
