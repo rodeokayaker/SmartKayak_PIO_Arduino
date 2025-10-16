@@ -1,11 +1,7 @@
 #include "SmartPaddle.h"
 #include "SmartPaddleServer.h"
-//#include "IMUSensor_GY85.h"
-//#include "IMUSensor_GY87.h"
-//#include "IMUSensor_BNO085.h"
 #include "ImuBNO08X.h"
-//#include "HX711.h"
-#include "LoadCellSetHX711.h"
+#include "LoadCellSetADS1220.h"
 #include "Wire.h"
 #include "esp_log.h"
 #include "driver/uart.h"
@@ -24,10 +20,6 @@
 
 
 // Определения пинов
-constexpr int LEFT_LOADCELL_DOUT_PIN = 2;
-constexpr int LEFT_LOADCELL_SCK_PIN = 3;
-constexpr int RIGHT_LOADCELL_DOUT_PIN = 5;
-constexpr int RIGHT_LOADCELL_SCK_PIN = 6;
 constexpr int I2C_SDA = IMU_SDA;
 constexpr int I2C_SCL = IMU_SCL;
 constexpr int INTERRUPT_PIN = IMU_INTA; //0;
@@ -54,9 +46,7 @@ TaskHandle_t serialTaskHandle = NULL;
 
 
 // Глобальные объекты
-//LoadCellHX711 leftCell("LEFT_LOAD", LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
-//LoadCellHX711 rightCell("RIGHT_LOAD", RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN);
-LoadCellSetHX711 loadsCellSet("LoadsHX711", TWO_BLADES, ALL_BLADES);
+LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, RIGHT_BLADE);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
 ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
 
@@ -321,7 +311,9 @@ void setup() {
     // Инициализация тензодатчиков
 //    leftCell.begin(HX711_DEFAULT_FREQUENCY);
 //    rightCell.begin(HX711_DEFAULT_FREQUENCY);
-    loadsCellSet.begin(RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN, LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
+    loadsCellSet.begin(LOADCELL_CS, LOADCELL_MISO, LOADCELL_MOSI, LOADCELL_SCK, LOADCELL_DRDY);
+    loadsCellSet.setFrequency(LOAD_FREQUENCY);
+    
 
     // Инициализация IMU
 

@@ -20,6 +20,8 @@ LoadCellSetADS1220::LoadCellSetADS1220(const char* prefsName, PaddleType paddleT
 }
 
 LoadCellSetADS1220 *instance = nullptr;
+Protocentral_ADS1220 LoadCellSetADS1220::pc_ads1220;
+TaskHandle_t LoadCellSetADS1220::_taskHandle = nullptr;
 
 bool LoadCellSetADS1220::begin(uint8_t sclk_pin, uint8_t miso_pin, uint8_t mosi_pin, uint8_t cs_pin, uint8_t drdy_pin) {
     
@@ -103,8 +105,6 @@ void LoadCellSetADS1220::stopServices() {
     if (LoadCellSetADS1220::_taskHandle) vTaskDelete(LoadCellSetADS1220::_taskHandle);
     LoadCellSetADS1220::_taskHandle = nullptr;
 }
-
-TaskHandle_t LoadCellSetADS1220::_taskHandle = nullptr;
 
 void LoadCellSetADS1220::taskEntry(void* arg) {
     LoadCellSetADS1220* loadcell = (LoadCellSetADS1220*)arg;
