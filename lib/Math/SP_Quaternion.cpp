@@ -185,6 +185,17 @@ namespace SP_Math
     Vector Quaternion::toYPR() const {
         return Vector(yaw(), pitch(), roll());
     }
+    
+    void Quaternion::toEuler(float& roll, float& pitch, float& yaw) const {
+        roll = this->roll();
+        pitch = this->pitch();
+        yaw = this->yaw();
+    }
+    
+    Quaternion Quaternion::fromEuler(float roll, float pitch, float yaw) {
+        return fromYPR(yaw, pitch, roll);
+    }
+    
     Quaternion Quaternion::fromAxisAngle(const Vector& axis, float angle) {
         float halfAngle = angle / 2;
         float sinHalfAngle = sin(halfAngle);
