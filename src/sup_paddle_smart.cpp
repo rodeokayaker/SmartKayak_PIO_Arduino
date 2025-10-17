@@ -8,7 +8,7 @@
 #include "esp_intr_alloc.h"
 #include "esp_event.h"
 #include "esp_private/usb_console.h"  // для CDC событий
-#include "LoadCellSetHX711.h"
+#include "LoadCellHX711.h"
 #include "SP_BLESerial.h"
 #include "LogInterface.h"
 #include "Peripherals.h"
@@ -46,8 +46,7 @@ TaskHandle_t serialTaskHandle = NULL;
 
 
 // Глобальные объекты
-//LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, RIGHT_BLADE);
-LoadCellSetHX711 loadsCellSet("LoadsHX711", TWO_BLADES, ALL_BLADES);
+LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, RIGHT_BLADE);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
 ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
 
@@ -269,29 +268,16 @@ void serialCommandTask(void *pvParameters) {
                 cmdBuffer[cmdIndex++] = c;
             }
         } else {
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }
 
-// Обработчик прерывания для получения данных через Serial
-void IRAM_ATTR onSerialReceive(void* arg, esp_event_base_t base, int32_t event_id, void* event_data) {
-    // Проверяем, что это событие получения данных
-    if (event_id == ARDUINO_HW_CDC_RX_EVENT) {  // или CDC_EVENT_RX
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        vTaskNotifyGiveFromISR(serialTaskHandle, &xHigherPriorityTaskWoken);
-        if (xHigherPriorityTaskWoken) {
-            portYIELD_FROM_ISR();
-        }
-    }
-    // Другие события можно игнорировать
-}
+// Обработчик событий через Serial не используется в этой конфигурации
 
-// Установка прерывания для получения данных через Serial
+// Установка прерывания для получения данных через Serial (не требуется)
 void setupSerialInterrupt() {
-    // Устанавливаем функцию обработки прерывания для Serial
-    Serial.onEvent(ARDUINO_HW_CDC_RX_EVENT, onSerialReceive);
-    Serial.println("Serial interrupt setup complete");
+    Serial.println("Serial interrupt not used; polling mode enabled");
 }
 
 
@@ -310,8 +296,8 @@ void setup() {
     Serial.println("\nSmart Paddle Initializing...");
     
     // Инициализация тензодатчиков
-    loadsCellSet.begin(RIGHT_LOADCELL_DOUT_PIN, RIGHT_LOADCELL_SCK_PIN, LEFT_LOADCELL_DOUT_PIN, LEFT_LOADCELL_SCK_PIN);
-    //loadsCellSet.setFrequency(LOAD_FREQUENCY);
+    loadsCellSet.begin(LOADCELL_CS, LOADCELL_MISO, LOADCELL_MOSI, LOADCELL_SCK, LOADCELL_DRDY);
+    loadsCellSet.setFrequency(LOAD_FREQUENCY);
     
 
     // Инициализация IMU

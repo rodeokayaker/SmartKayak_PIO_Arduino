@@ -9,11 +9,7 @@
 #include "SD.h"
 #include "AmperikaCRLog.h"
 #include <ESP32Servo.h>
-//#include "IMUSensor_BNO055.h"
 #include "ImuBNO08X.h"
-//#include "IMUSensor_BNO085.h"
-//#include "IMUSensor_GY87.h"
-//#include "IMUSensor_ICM20948.h"
 
 #include "ChinaMotor.h"
 #include "TFTSmallDisplay.h"
@@ -25,8 +21,6 @@
 
 // Define pins
 #define IMU_INTERRUPT_PIN IMU_INTA
-//#define IMU_INTERRUPT_PIN -1
-//#define IMU_I2C_ADDRESS 0x29
 #define IMU_I2C_ADDRESS 0x4B
 #define IMU_RESET_PIN IMU_RST
 

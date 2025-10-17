@@ -16,9 +16,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-#include "sh2.h"
-#include "sh2_SensorValue.h"
-#include "sh2_err.h"
 
 /**
  * @struct IMUData

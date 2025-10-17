@@ -1,7 +1,6 @@
 #include "SmartPaddle.h"
 #include "SmartPaddleServer.h"
-#include "ImuBNO08X.h"
-#include "LoadCellSetADS1220.h"
+#include "ImuBNO055.h"
 #include "Wire.h"
 #include "esp_log.h"
 #include "driver/uart.h"
@@ -49,7 +48,7 @@ TaskHandle_t serialTaskHandle = NULL;
 //LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, RIGHT_BLADE);
 LoadCellSetHX711 loadsCellSet("LoadsHX711", TWO_BLADES, ALL_BLADES);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
-ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
+ImuBNO055 imuSensor("IMU_PADDLE_MAIN_BNO055"); 
 
 // Генерация уникального ID весла
 uint32_t generatePaddleID() {
@@ -316,8 +315,7 @@ void setup() {
 
     // Инициализация IMU
 
-    imuSensor.setInterruptPin(INTERRUPT_PIN);
-    imuSensor.begin(&Wire, 0x4B, INTERRUPT_PIN, RESET_PIN);
+    imuSensor.begin();
 
     // Инициализация Весла
     
