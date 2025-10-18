@@ -5,8 +5,8 @@
 #pragma once
 #include "SP_Types.h"
 //#include "InterfaceIMU.h"
-#include "ImuSensor.h"
-#include "InterfaceLoadCell.h"
+#include "../Core/Interfaces/IIMUSensor.h"
+#include "../Core/Interfaces/ILoadCell.h"
 #include "BLEAddress.h"
 
 class SmartPaddle;

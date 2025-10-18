@@ -1,6 +1,6 @@
 #pragma once
 //#include "InterfaceIMU.h"
-#include "ImuSensor.h"
+#include "../Core/Interfaces/IIMUSensor.h"
 #include "SmartPaddle.h"
 #include <Arduino.h>
 
@@ -31,12 +31,12 @@ private:
     // Вычисление инерционных эффектов
     float calculateInertialEffects(const IMUData& imuData, 
                                  const BladeOrientation& bladeOrientation, 
-                                 bool isRightBlade) const;
+                                 bool isRightBlade, int8_t yAxisDirection) const;
 
     // Вычисление гироскопического эффекта
     float calculateGyroscopicEffect(const IMUData& imuData,
                                   const BladeOrientation& bladeOrientation,
-                                  bool isRightBlade) const;
+                                  bool isRightBlade, int8_t yAxisDirection) const;
 
 public:
     LoadCellCalibrator(float paddleLength = 2.2f, 
@@ -48,11 +48,12 @@ public:
     void setPaddleParameters(float length, float imuDist, float weight, float center, float momentInertia);
     
     void updateTare(bool isRightBlade, double leftForce, double rightForce,
-                   const IMUData& imuData, const BladeOrientation& bladeOrientation);
+                   const IMUData& imuData, const BladeOrientation& bladeOrientation, int8_t yAxisDirection);
     
     double getCalibratedForce(bool isRightBlade, double rawForce, 
                             const IMUData& imuData, 
-                            const BladeOrientation& bladeOrientation) const;
+                            const BladeOrientation& bladeOrientation,
+                            int8_t yAxisDirection) const;
     
     double getLeftTare() const { return leftTare.average; }
     double getRightTare() const { return rightTare.average; }

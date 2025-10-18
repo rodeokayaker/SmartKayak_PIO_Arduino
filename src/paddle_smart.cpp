@@ -10,7 +10,7 @@
 #include "esp_private/usb_console.h"  // для CDC событий
 #include "LoadCellSetHX711.h"
 #include "SP_BLESerial.h"
-#include "LogInterface.h"
+#include "../lib/Core/Interfaces/ILogger.h"
 #include "Peripherals.h"
 
 
@@ -303,9 +303,11 @@ void setup() {
         digitalWrite(POWER_PIN, HIGH);  
         delay(10);
     }
+    
     Wire.end();
     Wire.begin(I2C_SDA, I2C_SCL);
     Wire.setClock(400000);
+    delay(100);
     
     Serial.println("\nSmart Paddle Initializing...");
     
@@ -315,9 +317,15 @@ void setup() {
     
 
     // Инициализация IMU
-
+    Serial.println("Initializing IMU...");
     imuSensor.setInterruptPin(INTERRUPT_PIN);
-    imuSensor.begin(&Wire, 0x4B, INTERRUPT_PIN, RESET_PIN);
+    if (!imuSensor.begin(&Wire, 0x4B, INTERRUPT_PIN, RESET_PIN)) {
+        Serial.println("❌ Failed to initialize IMU");
+    } else {
+        Serial.println("✓ IMU initialized");
+        imuSensor.setOrientationFrequency(IMU_FREQUENCY);
+        imuSensor.setIMUFrequency(IMU_FREQUENCY);
+    }
 
     // Инициализация Весла
     
@@ -326,7 +334,7 @@ void setup() {
     paddleId = generatePaddleID();
     paddle.setPaddleID(paddleId);
     paddle.setEventHandler(&eventHandler);
-    paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
+    paddle.SetAxisDirection(AxisDirection::Y_AXIS_LEFT);
     // Инициализация Весла
     paddle.setIMU(&imuSensor);
 //    paddle.setLoads(&rightCell, &leftCell);
@@ -339,7 +347,7 @@ void setup() {
     // Проверка калибровки
 
 
-    if(loadsCellSet.isCalibrationValid(BladeSideType::ALL_BLADES)){
+    if(!loadsCellSet.isCalibrationValid(BladeSideType::ALL_BLADES)){
         Serial.println("\n*** WARNING: Load cell calibration required! ***");
         Serial.println("Current calibration data is missing or outdated.");
         Serial.println("Please run 'calibrate_load' command to perform calibration.");

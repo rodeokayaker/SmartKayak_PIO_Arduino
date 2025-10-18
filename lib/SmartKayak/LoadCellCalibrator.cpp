@@ -19,7 +19,7 @@ void LoadCellCalibrator::setPaddleParameters(float length, float imuDist, float 
 
 float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
                                                  const BladeOrientation& bladeOrientation,
-                                                 bool isRightBlade) const {
+                                                 bool isRightBlade, int8_t yAxisDirection) const {
     // Функция рассчитывает инерциальные силы в граммах, действующие на лопасть
     // в направлении нормали к лопасти от ускорений и вращений весла
     //
@@ -34,8 +34,8 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
     
     // ИСХОДНЫЙ КОД:
     float leverArm = isRightBlade ? 
-        (paddleLength/2 - imuDistance - bladeCenter)*bladeOrientation.YAxisDirection : 
-        (-paddleLength/2 - imuDistance + bladeCenter)*bladeOrientation.YAxisDirection;
+        (paddleLength/2 - imuDistance - bladeCenter)*yAxisDirection : 
+        (-paddleLength/2 - imuDistance + bladeCenter)*yAxisDirection;
 
     // Получаем нормаль лопасти
     const float* bladeNormal = isRightBlade ? 
@@ -119,7 +119,7 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
 
 float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
                                                   const BladeOrientation& bladeOrientation,
-                                                  bool isRightBlade) const {
+                                                  bool isRightBlade, int8_t yAxisDirection) const {
     // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ
     return 0.0f;
     
@@ -138,19 +138,19 @@ float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
     float gyroscopicMoment = angularMomentumY * transverseOmega;
     
     float leverArm = isRightBlade ? 
-        (paddleLength/2 - imuDistance - bladeCenter)*bladeOrientation.YAxisDirection : 
-        (-paddleLength/2 - imuDistance + bladeCenter)*bladeOrientation.YAxisDirection;
+        (paddleLength/2 - imuDistance - bladeCenter)*yAxisDirection : 
+        (-paddleLength/2 - imuDistance + bladeCenter)*yAxisDirection;
         
     return gyroscopicMoment / leverArm;
     
 }
 
 void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double rightForce,
-                                  const IMUData& imuData, const BladeOrientation& bladeOrientation) {
+                                  const IMUData& imuData, const BladeOrientation& bladeOrientation, int8_t yAxisDirection) {
     if (isRightBlade) {
         leftTare.samples++;
-        float compensation = calculateInertialEffects(imuData, bladeOrientation, false) +
-                           calculateGyroscopicEffect(imuData, bladeOrientation, false);
+        float compensation = calculateInertialEffects(imuData, bladeOrientation, false, yAxisDirection) +
+                           calculateGyroscopicEffect(imuData, bladeOrientation, false, yAxisDirection);
         leftTare.sum += (leftForce - compensation);
         
         if (leftTare.samples > SAMPLES_THRESHOLD) {
@@ -162,8 +162,8 @@ void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double 
     } else {
 //        Serial.printf("Right tare\n");
         rightTare.samples++;
-        float compensation = calculateInertialEffects(imuData, bladeOrientation, true) +
-                           calculateGyroscopicEffect(imuData, bladeOrientation, true);
+        float compensation = calculateInertialEffects(imuData, bladeOrientation, true, yAxisDirection) +
+                           calculateGyroscopicEffect(imuData, bladeOrientation, true, yAxisDirection);
         rightTare.sum += (rightForce - compensation);
         
         if (rightTare.samples > SAMPLES_THRESHOLD) {
@@ -177,9 +177,9 @@ void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double 
 
 double LoadCellCalibrator::getCalibratedForce(bool isRightBlade, double rawForce,
                                             const IMUData& imuData,
-                                            const BladeOrientation& bladeOrientation) const {
-//    float inertialEffects = calculateInertialEffects(imuData, bladeOrientation, isRightBlade);
-//    float gyroscopicEffect = calculateGyroscopicEffect(imuData, bladeOrientation, isRightBlade);
+                                            const BladeOrientation& bladeOrientation, int8_t yAxisDirection) const {
+//    float inertialEffects = calculateInertialEffects(imuData, bladeOrientation, isRightBlade, yAxisDirection);
+//    float gyroscopicEffect = calculateGyroscopicEffect(imuData, bladeOrientation, isRightBlade, yAxisDirection);
     double tare = isRightBlade ? rightTare.average : leftTare.average;
     
     return rawForce - tare;// - inertialEffects - gyroscopicEffect;

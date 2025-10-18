@@ -27,6 +27,8 @@ SP_BLESerial::SP_BLESerial(SmartPaddle* p) :
     messageProcessor() {}
 
 SP_BLESerial::~SP_BLESerial() {
+    // Удаляем JSON задачу только при уничтожении объекта
+    // (не при отключении - задача переиспользуется при переподключении)
     stopJsonProcessTask();
 }
 
@@ -35,32 +37,41 @@ void SP_BLESerial::setMessageHandler(SP_MessageHandler* handler) {
 }
 
 void SP_BLESerial::startJsonProcessTask() {
+    // Создаем задачу только один раз
     if (!taskRunning) {
+        Serial.printf("Starting JSON task (stack: %d bytes, free heap: %d bytes)...\n", 
+                     JSON_TASK_STACK_SIZE, ESP.getFreeHeap());
+        
         // Создаем очередь для сообщений
         jsonMessageQueue = xQueueCreate(JSON_QUEUE_SIZE, sizeof(JsonMessageTask));
         if (jsonMessageQueue == NULL) {
-            Serial.println("Failed to create JSON message queue");
+            Serial.println("❌ Failed to create JSON message queue");
             return;
         }
+        Serial.println("✓ JSON queue created");
         
         // Создаем задачу для обработки JSON
         BaseType_t taskCreated = xTaskCreate(
             jsonProcessTaskFunction,    // Функция задачи
             "JsonProcessTask",          // Имя задачи
-            JSON_TASK_STACK_SIZE,       // Увеличенный размер стека
+            JSON_TASK_STACK_SIZE,       // Размер стека
             this,                       // Параметр (указатель на текущий объект)
             1,                          // Приоритет
             &jsonProcessTaskHandle      // Дескриптор задачи
         );
         
         if (taskCreated != pdPASS) {
-            Serial.println("Failed to create JSON processing task");
+            Serial.printf("❌ Failed to create JSON processing task (error: %d, free heap: %d)\n", 
+                         taskCreated, ESP.getFreeHeap());
             vQueueDelete(jsonMessageQueue);
             jsonMessageQueue = NULL;
             return;
         }
         
+        Serial.println("✓ JSON task created successfully! (will persist across reconnections)");
         taskRunning = true;
+    } else {
+        Serial.println("ℹ️  JSON task already running (reusing existing task)");
     }
 }
 
@@ -82,9 +93,19 @@ void SP_BLESerial::stopJsonProcessTask() {
 
 void SP_BLESerial::jsonProcessTaskFunction(void* parameter) {
     SP_BLESerial* serial = static_cast<SP_BLESerial*>(parameter);
-    JsonMessageTask message;
+    JsonMessageTask signal;  // Теперь всего 1 байт вместо 4096!
+    
+    // Проверяем свободную память в начале задачи
+    Serial.printf("JSON task started, free heap: %d bytes\n", ESP.getFreeHeap());
     
     while (true) {
+        // Проверяем состояние памяти перед каждой итерацией
+        if (ESP.getFreeHeap() < 5000) {
+            Serial.printf("⚠️ JSON task: critical low memory (%d bytes), pausing\n", ESP.getFreeHeap());
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        }
+        
         // Проверяем, что очередь существует
         if (serial->jsonMessageQueue == NULL) {
             Serial.println("JSON message queue is NULL");
@@ -92,10 +113,15 @@ void SP_BLESerial::jsonProcessTaskFunction(void* parameter) {
             continue;
         }
         
-        // Ждем сообщения из очереди
-        if (xQueueReceive(serial->jsonMessageQueue, &message, portMAX_DELAY) == pdTRUE) {
-            // Обрабатываем JSON
-            serial->messageProcessor.processJson(message.message);
+        // Ждем сигнала из очереди
+        if (xQueueReceive(serial->jsonMessageQueue, &signal, portMAX_DELAY) == pdTRUE) {
+            // Проверяем память перед обработкой
+            if (ESP.getFreeHeap() > 10000) {
+                // Обрабатываем JSON из статического буфера класса (НЕ со стека задачи!)
+                serial->messageProcessor.processJson(serial->jsonTaskBuffer);
+            } else {
+                Serial.printf("⚠️ JSON task: skipping processing due to low memory (%d bytes)\n", ESP.getFreeHeap());
+            }
         }
     }
 }
@@ -142,17 +168,29 @@ size_t SP_BLESerial::write(const uint8_t* buffer, size_t bufferSize){
     if (!started || !paddle->connected())
         return 0;
 
+    // Ограничиваем размер буфера для предотвращения переполнения
+    size_t maxWrite = min(bufferSize, (size_t)ESP_GATT_MAX_ATTR_LEN - transmitBufferLength);
+    if (maxWrite == 0) {
+        flush(); // Принудительно отправляем буфер если он полный
+        maxWrite = min(bufferSize, (size_t)ESP_GATT_MAX_ATTR_LEN - transmitBufferLength);
+    }
+
     size_t written = 0;
-    for (int i = 0; i < bufferSize; i++)
+    for (size_t i = 0; i < maxWrite; i++)
     {
         written += this->write(buffer[i]);
     }
-//    flush();
     return written;
 }
 
 void SP_BLESerial::update() {
-    if(!started) return;
+    if(!started || !paddle->connected()) return;
+    
+    // Проверяем состояние памяти
+    if (ESP.getFreeHeap() < 10000) {
+        Serial.printf("⚠️ Low memory: %d bytes, skipping update\n", ESP.getFreeHeap());
+        return;
+    }
         
     if(transmitBufferLength > 0 && 
        (millis() - lastFlushTime > 20)) {
@@ -208,22 +246,22 @@ bool SP_BLESerial::updateJSON(bool printOther)
                     jsonIncomingBuffer[jsonIncomingBufferLength] = '\0';
                     
                     if (taskRunning && jsonMessageQueue != NULL) {
-                        // Создаем структуру для сообщения
-                        JsonMessageTask message;
-                        // Копируем сообщение в структуру
-                        strncpy(message.message, jsonIncomingBuffer, SP_JSON_BUFFER_SIZE - 1);
-                        message.message[SP_JSON_BUFFER_SIZE - 1] = '\0';
+                        // Копируем данные в буфер задачи
+                        strncpy(jsonTaskBuffer, jsonIncomingBuffer, SP_JSON_BUFFER_SIZE - 1);
+                        jsonTaskBuffer[SP_JSON_BUFFER_SIZE - 1] = '\0';
                         
-                        // Отправляем сообщение в очередь, с таймаутом 0 (неблокирующий режим)
-                        if (xQueueSend(jsonMessageQueue, &message, 0) != pdTRUE) {
+                        // Отправляем только сигнал в очередь (1 байт вместо 4096!)
+                        JsonMessageTask signal;
+                        signal.signal = 1;
+                        
+                        if (xQueueSend(jsonMessageQueue, &signal, 0) != pdTRUE) {
                             // Если очередь заполнена, обрабатываем здесь
-                            Serial.println("JSON queue is full");
+                            Serial.println("⚠️ JSON queue is full, processing synchronously");
                             messageProcessor.processJson(jsonIncomingBuffer);
-
                         }
                     } else {
-                        // Если задача не запущена или очередь не создана, обрабатываем здесь
-                        Serial.println("JSON task is not running");
+                        // Если задача не запущена или очередь не создана, обрабатываем синхронно
+                        // (Это нормальный fallback режим, JSON всё равно обрабатывается)
                         messageProcessor.processJson(jsonIncomingBuffer);
                     }
                     

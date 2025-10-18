@@ -1,14 +1,14 @@
 #ifndef LOADCELLSETADS1220_H
 #define LOADCELLSETADS1220_H
 
-#include "LoadCellSet.h"
+#include "../Core/Interfaces/ILoadCell.h"
 #include <SPI.h>
 #include "Protocentral_ADS1220.h"
 
 
 
 
-class LoadCellSetADS1220 : public LoadCellSet {
+class LoadCellSetADS1220 : public ILoadCellSet {
     private:
     static Protocentral_ADS1220 pc_ads1220;
     uint8_t sclk_pin;

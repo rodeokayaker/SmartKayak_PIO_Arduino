@@ -3,6 +3,9 @@
 #include <Preferences.h>
 #include <SP_BLESerialClient.h>
 #include <SP_BLESerial.h>
+#include <SP_CommandParams.h>
+#include <SP_CoordinateTransform.h>
+#include "BLEHealthMonitor.h"
 
 #define BLE_STACK_SIZE 4096
 #define BLE_RECEIVE_STACK_SIZE 8192
@@ -45,6 +48,8 @@ void SetPaddleSpecs(SmartPaddleBLEClient* paddle){
     specs.hasRightBlade = true;
     specs.imuFrequency = 100;
 
+    specs.axisDirection = Y_AXIS_LEFT;
+
 //------------------------
     specs.paddleType = PaddleType::TWO_BLADES;
     specs.length = 2.07f;
@@ -58,65 +63,138 @@ void SetPaddleSpecs(SmartPaddleBLEClient* paddle){
     specs.hasLeftBlade = true;
     specs.hasRightBlade = true;
     specs.imuFrequency = 100;
+    specs.axisDirection = Y_AXIS_LEFT;
+    specs.axisDirectionSign = -1;
 
     paddle->getSerial()->sendString(SP_MessageProcessor::createSpecsMessage(specs));
 }
 
 
+/**
+ * @brief Обработчик сообщений для SmartPaddleClient (мигрирован на callback подход)
+ */
 class SPClient_MessageHandler: public SP_MessageHandler{
-    private:
+private:
     SmartPaddleBLEClient* paddle;
 
-    public:
-    SPClient_MessageHandler(SmartPaddleBLEClient* paddle):paddle(paddle){}
+    void setupHandlers() {
+        // ============================================
+        // ДАННЫЕ
+        // ============================================
+        
+        // Обработка спецификаций весла
+        registerData(SP_Protocol::DataTypes::SPECS,
+            [this](SP_Data* data) {
+                SP_DataValue value(data);
+                
+                paddle->specs.paddleID = value.get<String>(SP_Protocol::DataTypes::Specs::PADDLE_ID, "");
+                paddle->specs.paddleType = (PaddleType)value.get<int>(SP_Protocol::DataTypes::Specs::PADDLE_TYPE, 0);
+                paddle->specs.paddleModel = value.get<String>(SP_Protocol::DataTypes::Specs::PADDLE_MODEL, "");
+                paddle->specs.length = value.get<float>(SP_Protocol::DataTypes::Specs::LENGTH, 2.0f);
+                paddle->specs.imuFrequency = value.get<int>(SP_Protocol::DataTypes::Specs::IMU_FREQUENCY, 0);
+                paddle->specs.hasLeftBlade = value.get<bool>(SP_Protocol::DataTypes::Specs::HAS_LEFT_BLADE, false);
+                paddle->specs.hasRightBlade = value.get<bool>(SP_Protocol::DataTypes::Specs::HAS_RIGHT_BLADE, false);
+                paddle->specs.firmwareVersion = value.get<int>(SP_Protocol::DataTypes::Specs::FIRMWARE_VERSION, 0);
+                paddle->specs.imuDistance = value.get<float>(SP_Protocol::DataTypes::Specs::IMU_DISTANCE, 0.0f);
+                paddle->specs.axisDirection = (AxisDirection)value.get<int>(SP_Protocol::DataTypes::Specs::AXIS_DIRECTION, (int)Y_AXIS_RIGHT);
+                paddle->specs.axisDirectionSign = paddle->specs.axisDirection==Y_AXIS_LEFT || paddle->specs.axisDirection==Z_AXIS_LEFT || paddle->specs.axisDirection==X_AXIS_LEFT ? -1 : 1;
+                
+                Serial.println("Paddle specs:");
+                Serial.printf("  Paddle ID: %s\n", paddle->specs.paddleID.c_str());
+                Serial.printf("  Firmware version: %d\n", paddle->specs.firmwareVersion);
+                Serial.printf("  Paddle model: %s\n", paddle->specs.paddleModel.c_str());
+                Serial.printf("  Length: %.2f\n", paddle->specs.length);
+                Serial.printf("  Paddle type: %d\n", paddle->specs.paddleType);
+                Serial.printf("  Has left blade: %d\n", paddle->specs.hasLeftBlade);
+                Serial.printf("  Has right blade: %d\n", paddle->specs.hasRightBlade);
+                Serial.printf("  IMU distance: %.2f\n", paddle->specs.imuDistance);
+                Serial.printf("  Axis direction: %d\n", paddle->specs.axisDirection);
+            });
 
-    virtual void onLog(SP_LogMessage* log) override{
+        // Обработка ориентации лопасти
+        registerData(SP_Protocol::DataTypes::BLADE_ORIENTATION,
+            [this](SP_Data* data) {
+                SP_DataValue value(data);
+                
+                paddle->bladeOrientation.rightBladeAngle = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::RIGHT_BLADE_ANGLE, 0.0f);
+                paddle->bladeOrientation.leftBladeAngle = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_ANGLE, 0.0f);
+                paddle->bladeOrientation.rightBladeVector[0] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::RIGHT_BLADE_VECTOR_X, 0.0f);
+                paddle->bladeOrientation.rightBladeVector[1] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::RIGHT_BLADE_VECTOR_Y, 0.0f);
+                paddle->bladeOrientation.rightBladeVector[2] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::RIGHT_BLADE_VECTOR_Z, 0.0f);
+                paddle->bladeOrientation.leftBladeVector[0] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_VECTOR_X, 0.0f);
+                paddle->bladeOrientation.leftBladeVector[1] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_VECTOR_Y, 0.0f);
+                paddle->bladeOrientation.leftBladeVector[2] = value.get<float>(
+                    SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_VECTOR_Z, 0.0f);
+                
+                // Преобразование векторов нормали лопастей в стандартную систему координат
+                SP_CoordinateTransform::transformBladeOrientation(paddle->bladeOrientation, paddle->specs.axisDirection);
+                
+                Serial.println("Blade orientation:");
+                Serial.printf("  Right blade angle: %.1f°\n", paddle->bladeOrientation.rightBladeAngle);
+                Serial.printf("  Left blade angle: %.1f°\n", paddle->bladeOrientation.leftBladeAngle);
+                
+//                SetPaddleSpecs(paddle);
+            });
+
+        // Обработка калибровочных данных магнитометра
+        registerData(SP_Protocol::DataTypes::MAGNETOMETER_CALIBRATION,
+            [this](SP_Data* data) {
+                SP_DataValue value(data);
+                
+                float offset[3];
+                float softIron[6];
+                
+                offset[0] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_X, 0.0f);
+                offset[1] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Y, 0.0f);
+                offset[2] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::OFFSET_Z, 0.0f);
+                
+                softIron[0] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_0, 1.0f);
+                softIron[1] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_1, 1.0f);
+                softIron[2] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_2_2, 1.0f);
+                softIron[3] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_1, 0.0f);
+                softIron[4] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_0_2, 0.0f);
+                softIron[5] = value.get<float>(SP_Protocol::DataTypes::MagnetometerCalibration::SOFT_IRON_1_2, 0.0f);
+                
+                Serial.println("Got Magnetometer calibration data");
+                Serial.printf("  Offset: %.2f, %.2f, %.2f\n", offset[0], offset[1], offset[2]);
+                Serial.printf("  Soft iron (diag): %.6f, %.6f, %.6f\n", softIron[0], softIron[1], softIron[2]);
+                Serial.printf("  Soft iron (off): %.6f, %.6f, %.6f\n", softIron[3], softIron[4], softIron[5]);
+                
+//                SetPaddleSpecs(paddle);
+                // SetPaddleCalibration(paddle);
+            });
+    }
+
+public:
+    SPClient_MessageHandler(SmartPaddleBLEClient* p) : paddle(p) {
+        setupHandlers();
+    }
+
+    // ============================================
+    // ПЕРЕОПРЕДЕЛЕНИЕ БАЗОВЫХ ОБРАБОТЧИКОВ
+    // ============================================
+    
+    void onLog(SP_LogMessage* log) override {
         Serial.printf("Paddle log: %s\n", log->message.c_str());
     }
-    virtual void onCommand(SP_Command* command) override{
+
+    void onUnknownCommand(SP_Command* command) override {
         Serial.printf("Paddle command: %s\n", command->command.c_str());
     }
-    virtual void onResponse(SP_Response* response) override{
+
+    void onResponse(SP_Response* response) override {
         Serial.printf("Paddle response: %s\n", response->command.c_str());
     }
 
-    virtual void onSpecsData(SP_Data* data, const PaddleSpecs& specs) override{
-        paddle->specs = specs;
-        Serial.printf("Paddle specs: \n");
-        Serial.printf("Paddle ID: %s\n", paddle->specs.paddleID);
-        Serial.printf("Firmware version: %d\n", paddle->specs.firmwareVersion);
-
-        Serial.printf("Paddle model: %s\n", paddle->specs.paddleModel);
-        Serial.printf("Length: %f\n", paddle->specs.length);
-        Serial.printf("Paddle type: %d\n", paddle->specs.paddleType);
-        Serial.printf("Has left blade: %d\n", paddle->specs.hasLeftBlade);
-        Serial.printf("Has right blade: %d\n", paddle->specs.hasRightBlade);
-        Serial.printf("IMU distance: %f\n", paddle->specs.imuDistance);
-
-
-    }
-
-    virtual void onBladeOrientationData(SP_Data* data, const BladeOrientation& bladeOrientation) override{
-        paddle->bladeOrientation = bladeOrientation;
-        Serial.printf("Blade orientation: \n");
-        Serial.printf("Y axis direction: %d\n", paddle->bladeOrientation.YAxisDirection);
-        Serial.printf("Right blade angle: %f\n", paddle->bladeOrientation.rightBladeAngle);
-        Serial.printf("Left blade angle: %f\n", paddle->bladeOrientation.leftBladeAngle);
-        SetPaddleSpecs(paddle);
-    }
-
-    virtual void onStatus(SP_StatusMessage* status) override{
-        Serial.printf("Got Paddle status\n");
-
-    }
-
-    virtual void onMagnetometerCalibrationData(SP_Data* data, float* offset, float* softIron) override{
-        Serial.printf("Got Magnetometer calibration data\n");
-        Serial.printf("Magnetometer calibration data: %f, %f, %f\n", offset[0], offset[1], offset[2]); 
-        Serial.printf("Magnetometer calibration data: %f, %f, %f\n", softIron[0], softIron[1], softIron[2]);
-        Serial.printf("Magnetometer calibration data: %f, %f, %f\n", softIron[3], softIron[4], softIron[5]);
-        SetPaddleSpecs(paddle);
-//        SetPaddleCalibration(paddle);
+    void onStatus(SP_StatusMessage* status) override {
+        Serial.println("Got Paddle status");
     }
 };
 
@@ -221,9 +299,11 @@ class SPClientRTOS{
                     event_updated=true;
                 }
                 else {
-                    paddle->eventHandler->onUpdateIMU(imuData, paddle);
-                    imuData.timestamp=UINT32_MAX;
-                    event_updated=true;
+                    if (imuData.timestamp<UINT32_MAX){ 
+                        paddle->eventHandler->onUpdateIMU(imuData, paddle);
+                        imuData.timestamp=UINT32_MAX;
+                        event_updated=true;
+                    }
                 }
             }
             else {
@@ -308,6 +388,18 @@ SmartPaddleBLEClient::SmartPaddleBLEClient(const char* prefs_Name)
     serial=new SP_BLESerialClient(this);
     messageHandler=new SPClient_MessageHandler(this);
     serial->setMessageHandler(messageHandler);
+    specs.axisDirection = Y_AXIS_LEFT;
+    specs.length = 2.0f;
+    specs.imuDistance = 0.00f;
+    specs.bladeWeight = 0.3f;
+    specs.bladeCenter = 0.20f;
+    specs.bladeMomentInertia = 0.01;
+    specs.firmwareVersion = 0;
+    specs.paddleModel = "No MODEL";
+    specs.hasLeftBlade = true;
+    specs.hasRightBlade = true;
+    specs.imuFrequency = 0;
+    specs.axisDirectionSign = -1;
 }
 
 
@@ -353,6 +445,12 @@ void SmartPaddleBLEClient::imuCallback(BLERemoteCharacteristic* pChar, uint8_t* 
             timeDifference=millis()-data.timestamp;
         }
         memcpy(&data, pData, sizeof(IMUData));    
+
+        // Преобразование координат IMU в стандартную систему (Y вдоль шафта)
+        // независимо от реальной ориентации датчика
+        SP_CoordinateTransform::transformIMUData(data, specs.axisDirection);
+
+
         imuQueue.send(data);
         current_imu_data=data;
         if (eventHandler) xTaskNotifyGive(eventTaskHandle);
@@ -368,6 +466,10 @@ void SmartPaddleBLEClient::orientationCallback(BLERemoteCharacteristic* pChar, u
         if (millis()-data.timestamp < timeDifference) {
             timeDifference=millis()-data.timestamp;
         }
+        
+        // Преобразование кватерниона ориентации в стандартную систему координат
+        SP_CoordinateTransform::transformOrientationData(data, specs.axisDirection);
+        
         orientationQueue.send(data);
         current_orientation_data=data;
         if (eventHandler) xTaskNotifyGive(eventTaskHandle);
@@ -489,8 +591,23 @@ void SmartPaddleBLEClient::startScan(uint32_t duration) {
 }
 
 void SmartPaddleBLEClient::begin(const char* deviceName) {
+    Serial.println("Starting SmartPaddleBLEClient::begin()");
 
     do_connect=false;
+    
+    // Инициализация NVS если еще не инициализирован
+/*    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        Serial.println("Erasing and reinitializing NVS...");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    Serial.println("NVS ready for SmartPaddle client");
+*/    
+    // Инициализируем мониторинг здоровья BLE
+    BLEHealthMonitor::begin();
+    
     BLEDevice::init(deviceName);
     BLEDevice::setMTU(BLEMTU);
     
@@ -537,9 +654,25 @@ bool SmartPaddleBLEClient::connect() {
     
     Serial.printf("Connecting to trusted device: %s\n", trustedDevice->toString().c_str());
     
+    // Проверяем, что предыдущий клиент был корректно удален
+    if (pClient != nullptr) {
+        Serial.println("⚠️ Previous client still exists, cleaning up...");
+        pClient->disconnect();
+        delete pClient;
+        pClient = nullptr;
+        delay(100);
+    }
+    
     pClient = BLEDevice::createClient();
-    pClient->setClientCallbacks(new SPBLEClientCallbacks(this));
-    Serial.println("Created client");
+    if (!pClient) {
+        Serial.println("❌ Failed to create BLE client");
+        return false;
+    }
+    
+    // Используем статический callback вместо создания нового объекта
+    static SPBLEClientCallbacks clientCallbacks(this);
+    pClient->setClientCallbacks(&clientCallbacks);
+    Serial.println("✓ Created client with callbacks");
 
     // Подключение к серверу - эта операция блокирующая
     if(!pClient->connect(*trustedDevice)) {
@@ -554,14 +687,15 @@ bool SmartPaddleBLEClient::connect() {
     //vTaskDelay(pdMS_TO_TICKS(100));
     delay(100);
 
-    // Установка MTU
+    // Установка MTU с проверкой
+    Serial.printf("Requesting MTU: %d\n", BLEMTU);
     if (pClient->setMTU(BLEMTU)) {
-        Serial.printf("Set MTU to %d\n", BLEMTU);
+        delay(100); // Даем время на установку MTU
+        Serial.printf("MTU successfully set to %d\n", BLEDevice::getMTU());
     } else {
-        Serial.printf("Failed to set MTU to %d\n", BLEMTU);
+        Serial.printf("Failed to set MTU, current MTU: %d\n", BLEDevice::getMTU());
     }
     
-    //vTaskDelay(pdMS_TO_TICKS(100));
     delay(100);
     
     Serial.println("Connected to trusted device");
@@ -607,21 +741,29 @@ bool SmartPaddleBLEClient::connect() {
 }
 
 void SmartPaddleBLEClient::updateBLE() {
+    // Проверяем здоровье BLE стека
+    if (!BLEHealthMonitor::checkBLEHealth()) {
+        Serial.println("⚠️ BLE unhealthy, skipping update");
+        return;
+    }
+    
     if (do_connect) {
-        Serial.printf("Connecting\n");
+        Serial.printf("Connecting (free heap: %d bytes)\n", ESP.getFreeHeap());
         delay(50);
         do_connect=false;        
         connect();
         Serial.printf("Out from connect\n");
     }
-  if(do_disconnect) {
-        Serial.printf("Disconnecting\n");
+    
+    if(do_disconnect) {
+        Serial.printf("Disconnecting (free heap: %d bytes)\n", ESP.getFreeHeap());
         disconnect();
         do_disconnect=false;
         Serial.printf("Out from disconnect\n");
     }
+    
     if(do_scan && !connected()&&!do_disconnect&&!do_connect) {
-        Serial.println("Scanning for devices");
+        Serial.printf("Scanning for devices (free heap: %d bytes)\n", ESP.getFreeHeap());
         do_scan=false;
         startScan(0);
         if (!do_connect&&!connected()) {
@@ -630,7 +772,9 @@ void SmartPaddleBLEClient::updateBLE() {
         Serial.printf("Out from scan\n");
     }
   
-    if (serial) serial->update();
+    if (serial && connected()) {
+        serial->update();
+    }
 }
 
 void SmartPaddleBLEClient::calibrateIMU() {

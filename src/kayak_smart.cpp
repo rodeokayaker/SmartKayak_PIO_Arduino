@@ -13,7 +13,7 @@
 
 #include "ChinaMotor.h"
 #include "TFTSmallDisplay.h"
-#include "SP_Types.h"
+#include "../lib/Core/Types.h"
 #include "LoadCellHX711.h"
 
 
@@ -59,21 +59,6 @@ int loadCellValue = 0;
 
 static bool log_paddle = false;
 static bool SDCardReady = false;
-
-
-// Структуры для хранения последних полученных данных
-struct {
-    loadData load;
-    IMUData imu;
-    OrientationData orientation;
-    BladeData blade;
-    PaddleStatus status;
-    bool loadValid = false;
-    bool imuValid = false;
-    bool orientationValid = false;
-    bool bladeValid = false;
-    bool statusValid = false;
-} paddleData;
 
 
 #define N_MODES_SCENARIO 12
@@ -204,19 +189,14 @@ void PowerButton::onRelease() {
 
 }
 
-// Глобальные объекты
 
-SmartPaddleBLEClient paddle("Paddle_1");
-//IMUSensor_BNO055 imu_bno055("imu_bno055_2", IMU_I2C_ADDRESS, -1, &Serial);
-//IMUSensor_BNO085 imu_bno085("imu_bno085");
+SmartPaddleBLEClient paddle("SmartKayak 1.1");
 ImuBNO08X imu_bno08x("imu_bno08x");
-//IMUSensor_GY87 imu_bno055("imu_gy87", true, IMU_INTERRUPT_PIN);
-//IMUSensor_ICM20948 imu_icm20948("imu_icm20948", ICM20948_I2C_ADDRESS, IMU_INTERRUPT_PIN, &Serial);
 SmartKayak kayak;
 PowerButton powerButton(BUTTON1_PIN);
 AmperikaCRLog SDlog(SD_CS, SD_SCK, SD_MISO, SD_MOSI);
 ChinaMotor motor(MOTOR_PWM);
-ImuSensor* imu_sensor = &imu_bno08x;
+IIMUSensor* imu_sensor = &imu_bno08x;
 
 class LogButton: public ButtonDriver, public ILogSwitch {
     private:
@@ -321,9 +301,6 @@ class DisplayButton: public ButtonDriver {
         }
 
         Serial.printf("Display button pressed\n");        
-//        String cmd = SP_MessageProcessor::createSendCalibrationDataCommand();
-//        Serial.printf("Command: %s\n", cmd.c_str());
-//        paddle.getSerial()->sendString(cmd);
         if (powerButton.getMotorDebugMode()) {
             powerButton.debugMotorChandeForce(-50);
             kayakDisplay->setDebugData(currentForce, loadCell.getRawForce(), debugScenario.isRunning());
@@ -347,9 +324,6 @@ class DisplayButton: public ButtonDriver {
 
 DisplayButton displayButton(BUTTON3_PIN);
 
-
-
-// Задача обработки данных с весла
 void processDataTask(void *pvParameters) {
 //    Serial.println("=== PROCESS TASK STARTED ===");
     
@@ -479,10 +453,6 @@ void processCommand(const char* cmd) {
         Serial.printf("Connection status: %s\n", 
                      paddle.connected() ? "Connected" : "Disconnected");
         
-        if(paddleData.statusValid) {
-            Serial.printf("Battery: %d%%\n", paddleData.status.batteryLevel);
-            Serial.printf("Temperature: %d°C\n", paddleData.status.temperature);
-        }
         
         PaddleSpecs specs = paddle.getSpecs();
         Serial.printf("Paddle ID: %s\n", specs.paddleID);
@@ -559,7 +529,7 @@ void serialCommandTask(void *pvParameters) {
     int cmdIndex = 0;
     
     while(1) {
-        if(Serial.available()) {
+        while(Serial.available()) {
             char c = Serial.read();
             Serial.print(c);
 
@@ -573,7 +543,7 @@ void serialCommandTask(void *pvParameters) {
                 cmdBuffer[cmdIndex++] = c;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 

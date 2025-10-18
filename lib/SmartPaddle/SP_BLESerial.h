@@ -20,7 +20,7 @@
 #define SP_JSON_BUFFER_SIZE 4096
 #define JSON_BUFFER_SIZE 4096
 #define JSON_QUEUE_SIZE 5
-#define JSON_TASK_STACK_SIZE 16384
+#define JSON_TASK_STACK_SIZE 4096  // Уменьшено с 16384 до 4096 для экономии памяти
 
 // UUID для сервиса Serial
 namespace SPSerialUUID {
@@ -68,7 +68,6 @@ namespace SP_BLESerial_Data {
         extern const char* FIRMWARE_VERSION;
     }
     namespace BLADE_ORIENTATION_DATA {
-        extern const char* Y_AXIS_DIRECTION;
         extern const char* RIGHT_BLADE_ANGLE;
         extern const char* LEFT_BLADE_ANGLE;
         extern const char* RIGHT_BLADE_VECTOR_X;
@@ -80,9 +79,9 @@ namespace SP_BLESerial_Data {
     }
 }
 
-// Структура для сообщений в очереди
+// Структура для сообщений в очереди (просто сигнал, данные в jsonTaskBuffer)
 struct JsonMessageTask {
-    char message[SP_JSON_BUFFER_SIZE];
+    uint8_t signal;  // Просто сигнал что есть данные (вместо 4096 байт!)
 };
 
 // Базовый класс для обработки сообщений
@@ -115,6 +114,7 @@ protected:
     TaskHandle_t jsonProcessTaskHandle;
     QueueHandle_t jsonMessageQueue;
     bool taskRunning;
+    char jsonTaskBuffer[SP_JSON_BUFFER_SIZE];  // Буфер для задачи (в классе, а не на стеке!)
 
     // Методы для работы с JSON
     void sendJson(const JsonDocument& doc);

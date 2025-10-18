@@ -75,9 +75,6 @@ namespace SP_Protocol {
         extern const char* TITLE;
         extern const char* VALUE;
         extern const char* SPECS;                ///< Спецификации
-        extern const char* IMU;                   ///< Данные IMU
-        extern const char* LOAD;                  ///< Данные нагрузки
-        extern const char* ORIENTATION;           ///< Ориентация
         extern const char* BLADE_ORIENTATION;     ///< Ориентация лопасти
         extern const char* STATUS;                ///< Статус устройства
         extern const char* MAGNETOMETER_CALIBRATION; ///< Калибровка магнитометра
@@ -97,13 +94,13 @@ namespace SP_Protocol {
             extern const char* HAS_LEFT_BLADE;
             extern const char* HAS_RIGHT_BLADE;
             extern const char* FIRMWARE_VERSION;
+            extern const char* AXIS_DIRECTION;  ///< Направление оси IMU (какая ось вдоль шафта)
         }
 
         /**
          * @brief Поля для данных ориентации лопасти
          */
         namespace BladeOrientation {
-             extern const char* Y_AXIS_DIRECTION;
             extern const char* RIGHT_BLADE_ANGLE;
             extern const char* LEFT_BLADE_ANGLE;
             extern const char* RIGHT_BLADE_VECTOR_X;
@@ -112,51 +109,6 @@ namespace SP_Protocol {
             extern const char* LEFT_BLADE_VECTOR_X;
             extern const char* LEFT_BLADE_VECTOR_Y;
             extern const char* LEFT_BLADE_VECTOR_Z;
-        }
-
-        /**
-         * @brief Поля для IMU данных
-         */
-        namespace IMUData {
-            extern const char* ACCEL_X;
-            extern const char* ACCEL_Y;
-            extern const char* ACCEL_Z;
-            extern const char* GYRO_X;
-            extern const char* GYRO_Y;
-            extern const char* GYRO_Z;
-            extern const char* MAG_X;
-            extern const char* MAG_Y;
-            extern const char* MAG_Z;
-            extern const char* QUAT_0;
-            extern const char* QUAT_1;
-            extern const char* QUAT_2;
-            extern const char* QUAT_3;
-            extern const char* MAG_X_ALT;  
-            extern const char* MAG_Y_ALT;  
-            extern const char* MAG_Z_ALT;  
-            extern const char* TIMESTAMP;
-        }
-
-        /**
-         * @brief Поля для данных нагрузки
-         */
-        namespace LoadData {
-            extern const char* LEFT;
-            extern const char* RIGHT;
-            extern const char* LEFT_RAW;  
-            extern const char* RIGHT_RAW;  
-            extern const char* TIMESTAMP;
-        }
-
-        /**
-         * @brief Поля для данных ориентации
-         */
-        namespace OrientationData {
-            extern const char* QUAT_0;     
-            extern const char* QUAT_1;     
-            extern const char* QUAT_2;     
-            extern const char* QUAT_3;     
-            extern const char* TIMESTAMP;
         }
 
         /**

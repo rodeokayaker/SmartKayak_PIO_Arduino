@@ -2,9 +2,9 @@
 #define SMARTPADDLE_BLE_SERVER_H
 
 #include <SmartPaddle.h>
-#include <LogInterface.h>
+#include "../Core/Interfaces/ILogger.h"
 #include "BLEServer.h"
-#include "OverwritingQueue.h"
+#include "../Core/Utils/OverwritingQueue.h"
 
 
 #define HX711_SET_INTERRUPT
@@ -28,9 +28,9 @@ class SmartPaddleBLEServer : public SmartPaddle {
 private:
 
 //Sensors
-    ImuSensor* imu;
+    IIMUSensor* imu;
 //    ILoadCell* loads[2];
-    LoadCellSet* loads;
+    ILoadCellSet* loads;
     loadData lastLoadData;
 
 //Preferences
@@ -107,9 +107,9 @@ public:
     void setPaddleID(uint32_t id){specs.paddleID=id;}
     void setPaddleType(PaddleType type){specs.paddleType=type;}    
 
-    void setIMU(ImuSensor* imuSensor){imu=imuSensor;}
+    void setIMU(IIMUSensor* imuSensor){imu=imuSensor;}
 //    void setLoads(ILoadCell* right, ILoadCell* left=0){loads[0]=right; loads[1]=left;}
-    void setLoads(LoadCellSet* lcSet){loads=lcSet;}
+    void setLoads(ILoadCellSet* lcSet){loads=lcSet;}
 
     void disconnect() override;               // Disconnect paddle
 
@@ -132,7 +132,7 @@ public:
 
     uint32_t paddleMillis() override {return ::millis();}
 
-    void SetYAxisDirection(signed char direction, bool save = true);
+    void SetAxisDirection(signed char direction, bool save = true);
 
     void clearTrustedDevice();
     void saveSpecs();

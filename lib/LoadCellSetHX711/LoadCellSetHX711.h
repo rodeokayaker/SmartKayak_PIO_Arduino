@@ -1,10 +1,10 @@
 #ifndef LOADCELLSETHX711_H
 #define LOADCELLSETHX711_H
 
-#include "LoadCellSet.h"
+#include "../Core/Interfaces/ILoadCell.h"
 #include <HX711.h>
 
-class LoadCellSetHX711 : public LoadCellSet {
+class LoadCellSetHX711 : public ILoadCellSet {
     private:
     HX711 scaleR;  // Right blade scale
     HX711 scaleL;  // Left blade scale

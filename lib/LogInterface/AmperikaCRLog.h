@@ -1,7 +1,7 @@
 #ifndef AMPERIKA_CR_LOG_H
 #define AMPERIKA_CR_LOG_H
 
-#include "LogInterface.h"
+#include "../Core/Interfaces/ILogger.h"
 #include <SD.h>
 
 class AmperikaCRLog : public ILogInterface{

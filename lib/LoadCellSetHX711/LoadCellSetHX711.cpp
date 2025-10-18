@@ -4,8 +4,8 @@
 // Static task handle
 TaskHandle_t LoadCellSetHX711::_taskHandle = nullptr;
 
-LoadCellSetHX711::LoadCellSetHX711(const char* prefsName, PaddleType paddleType, BladeSideType bladeSide)
-    : LoadCellSet(paddleType, bladeSide), scaleR(), scaleL() {
+LoadCellSetHX711::LoadCellSetHX711(const char* prefsName, PaddleType paddleType, BladeSideType bladeSide) 
+    : ILoadCellSet(paddleType, bladeSide), scaleR(), scaleL() {
     this->prefs_Name = prefsName;
     
     // Initialize calibration data
@@ -18,8 +18,7 @@ LoadCellSetHX711::LoadCellSetHX711(const char* prefsName, PaddleType paddleType,
     leftUpdated = false;
     readyToRead = false;
     
-    // Load saved calibration data
-    readCalibrationData();
+
 }
 
 bool LoadCellSetHX711::begin(uint8_t doutR_pin, uint8_t sclkR_pin, uint8_t doutL_pin, uint8_t sclkL_pin) {
@@ -27,6 +26,8 @@ bool LoadCellSetHX711::begin(uint8_t doutR_pin, uint8_t sclkR_pin, uint8_t doutL
     this->sclkR_pin = sclkR_pin;
     this->doutL_pin = doutL_pin;
     this->sclkL_pin = sclkL_pin;
+        // Load saved calibration data
+        readCalibrationData();
     
     // Initialize right scale
     scaleR.begin(doutR_pin, sclkR_pin);
@@ -112,7 +113,7 @@ bool LoadCellSetHX711::isDataReady(BladeSideType bladeSide) {
 }
 
 void LoadCellSetHX711::setFrequency(uint16_t freq) {
-    LoadCellSet::setFrequency(freq);
+    ILoadCellSet::setFrequency(freq);
     // HX711 frequency is fixed, but we can adjust reading rate
 }
 

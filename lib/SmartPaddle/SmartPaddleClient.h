@@ -5,7 +5,7 @@
 #include <BLEClient.h>
 #include <BLESecurity.h>
 #include <BLE2902.h>
-#include "OverwritingQueue.h"
+#include "../Core/Utils/OverwritingQueue.h"
 
 
 namespace SPClient_Default_Frequencies {
@@ -108,6 +108,7 @@ public:
     uint32_t paddleMillis() override;
     uint32_t toLocalMillis(uint32_t timestamp) {return timestamp+timeDifference;}
     void startTasks();
+    int8_t getYAxisDirection() {return specs.axisDirectionSign;}
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

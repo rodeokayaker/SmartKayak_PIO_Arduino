@@ -71,6 +71,8 @@ public:
         if(started) return;
         setupSerialService();
         started = true;
+        // Создаем JSON задачу только при первом запуске
+        // При последующих подключениях она будет переиспользоваться
         startJsonProcessTask();
     }
 
@@ -79,7 +81,8 @@ public:
         flush();
         serialService->stop();
         started = false;
-        stopJsonProcessTask();
+        // НЕ останавливаем JSON задачу - она будет работать при переподключении
+        // Задача удаляется только в деструкторе ~SP_BLESerial()
     }
 
     void update() override {

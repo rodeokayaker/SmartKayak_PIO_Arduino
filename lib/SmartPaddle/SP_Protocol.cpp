@@ -41,9 +41,6 @@ namespace SP_Protocol {
         const char* TITLE = "dataType";
         const char* VALUE = "value";
         const char* SPECS = "specs";
-        const char* IMU = "imu";
-        const char* LOAD = "load";
-        const char* ORIENTATION = "orientation";
         const char* BLADE_ORIENTATION = "blade_orientation";
         const char* STATUS = "status";
         const char* MAGNETOMETER_CALIBRATION = "m_calib";
@@ -62,10 +59,10 @@ namespace SP_Protocol {
             const char* HAS_LEFT_BLADE = "hasLeftBlade";
             const char* HAS_RIGHT_BLADE = "hasRightBlade";
             const char* FIRMWARE_VERSION = "firmwareVersion";
+            const char* AXIS_DIRECTION = "axisDirection";
         }
 
         namespace BladeOrientation {
-            const char* Y_AXIS_DIRECTION = "yAxisDirection";
             const char* RIGHT_BLADE_ANGLE = "rightBladeAngle";
             const char* LEFT_BLADE_ANGLE = "leftBladeAngle";
             const char* RIGHT_BLADE_VECTOR_X = "rightBladeVectorX";
@@ -76,41 +73,6 @@ namespace SP_Protocol {
             const char* LEFT_BLADE_VECTOR_Z = "leftBladeVectorZ";
         }
         
-        namespace IMUData {
-            const char* ACCEL_X = "ax";
-            const char* ACCEL_Y = "ay";
-            const char* ACCEL_Z = "az";
-            const char* GYRO_X = "gx";
-            const char* GYRO_Y = "gy";
-            const char* GYRO_Z = "gz";
-            const char* MAG_X = "mx";
-            const char* MAG_Y = "my";
-            const char* MAG_Z = "mz";
-            const char* QUAT_0 = "q0";
-            const char* QUAT_1 = "q1";
-            const char* QUAT_2 = "q2";
-            const char* QUAT_3 = "q3";
-            const char* MAG_X_ALT = "magX";
-            const char* MAG_Y_ALT = "magY";
-            const char* MAG_Z_ALT = "magZ";
-            const char* TIMESTAMP = "ts";
-        }
-        
-        namespace LoadData {
-            const char* LEFT = "left";
-            const char* RIGHT = "right";
-            const char* LEFT_RAW = "left_raw";
-            const char* RIGHT_RAW = "right_raw";
-            const char* TIMESTAMP = "ts";
-        }
-        
-        namespace OrientationData {
-            const char* QUAT_0 = "q0";
-            const char* QUAT_1 = "q1";
-            const char* QUAT_2 = "q2";
-            const char* QUAT_3 = "q3";
-            const char* TIMESTAMP = "ts";
-        }
         
         namespace StatusData {
             const char* BATTERY = "battery";

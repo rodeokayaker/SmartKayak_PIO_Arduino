@@ -2,7 +2,7 @@
 #include <Preferences.h>
 
 LoadCellSetADS1220::LoadCellSetADS1220(const char* prefsName, PaddleType paddleType, BladeSideType bladeSide)
-    : LoadCellSet(paddleType, bladeSide) {
+    : ILoadCellSet(paddleType, bladeSide) {
     this->prefs_Name = prefsName;
     // Initialize calibration data
     calibrationData.scale[0] = 1.0f; // right blade
@@ -55,7 +55,7 @@ int LoadCellSetADS1220::getFreqID() {
 }
 
 void LoadCellSetADS1220::setFrequency(uint16_t frequency) {
-    LoadCellSet::setFrequency(frequency);
+    ILoadCellSet::setFrequency(frequency);
     pc_ads1220.set_data_rate(getFreqID());
 }
 

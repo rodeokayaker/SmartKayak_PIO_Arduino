@@ -1,0 +1,32 @@
+{
+  "name": "SmartKayak-Core",
+  "version": "1.0.0",
+  "description": "Core types and interfaces for SmartKayak/SmartPaddle project",
+  "keywords": "kayak, paddle, types, interfaces",
+  "authors": [
+    {
+      "name": "Ivan Rybnikov",
+      "email": ""
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "frameworks": "arduino",
+  "platforms": "*",
+  "build": {
+    "includeDir": ".",
+    "flags": [
+      "-I."
+    ]
+  },
+  "export": {
+    "include": [
+      "Types.h",
+      "Interfaces",
+      "Utils"
+    ]
+  }
+}
+

@@ -1,0 +1,20 @@
+{
+  "name": "SmartPaddle",
+  "version": "1.0.0",
+  "description": "SmartPaddle library for paddle tracking",
+  "keywords": "kayak, paddle, imu, load cell, ble",
+  "authors": [
+    {
+      "name": "Ivan Rybnikov"
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    {
+      "name": "SmartKayak-Core",
+      "version": "*"
+    }
+  ]
+}
+

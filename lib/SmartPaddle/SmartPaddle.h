@@ -7,10 +7,9 @@
 
 #include <Arduino.h>
 #include "SP_BLESerial.h"
-//#include "InterfaceIMU.h"
-#include "ImuSensor.h"
-#include "InterfaceLoadCell.h"
-#include "SP_Types.h"
+#include "../Core/Interfaces/IIMUSensor.h"
+#include "../Core/Interfaces/ILoadCell.h"
+#include "../Core/Types.h"
 #include "SP_EventHandler.h"
 
 #define SENSOR_QUEUE_SIZE 10
@@ -33,7 +32,6 @@ class SP_BLESerial;
 class SmartPaddle {
 
     protected:
-
         PaddleSpecs specs;
         PaddleStatus status;
         BladeOrientation bladeOrientation;
