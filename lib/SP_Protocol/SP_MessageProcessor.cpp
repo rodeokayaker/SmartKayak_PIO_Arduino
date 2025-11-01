@@ -112,6 +112,10 @@ String SP_MessageProcessor::createSendSpecsCommand() {
     return createCommandMessage(SP_Protocol::Commands::SEND_SPECS);
 }
 
+String SP_MessageProcessor::createSendPaddleOrientationCommand() {
+    return createCommandMessage(SP_Protocol::Commands::SEND_PADDLE_ORIENTATION);
+}
+
 String SP_MessageProcessor::createStartPairCommand() {
     return createCommandMessage(SP_Protocol::Commands::START_PAIR);
 }
@@ -181,6 +185,9 @@ String SP_MessageProcessor::createSpecsMessage(const PaddleSpecs& specs) {
     msg.value[SP_Protocol::DataTypes::Specs::HAS_RIGHT_BLADE] = specs.hasRightBlade;
     msg.value[SP_Protocol::DataTypes::Specs::FIRMWARE_VERSION] = specs.firmwareVersion;
     msg.value[SP_Protocol::DataTypes::Specs::AXIS_DIRECTION] = (int)specs.axisDirection;
+    msg.value[SP_Protocol::DataTypes::Specs::BLADE_WEIGHT] = specs.bladeWeight;
+    msg.value[SP_Protocol::DataTypes::Specs::BLADE_CENTER] = specs.bladeCenter;
+    msg.value[SP_Protocol::DataTypes::Specs::BLADE_MOMENT_INERTIA] = specs.bladeMomentInertia;
     return msg.serialize();
 }
 

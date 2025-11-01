@@ -1,7 +1,7 @@
 #ifndef SMARTPADDLE_BLE_SERVER_H
 #define SMARTPADDLE_BLE_SERVER_H
 
-#include <SmartPaddle.h>
+#include <SmartPaddleBLE.h>
 #include "../Core/Interfaces/ILogger.h"
 #include "BLEServer.h"
 #include "../Core/Utils/OverwritingQueue.h"
@@ -21,7 +21,7 @@ namespace SPServer_Default_Frequencies {
 }
 
 
-class SmartPaddleBLEServer : public SmartPaddle {
+class SmartPaddleBLEServer : public SmartPaddleBLE {
     friend class SPBLEServerCallbacks;
     friend class SPServer_MessageHandler;
     friend class SPServerRTOS;
@@ -116,7 +116,7 @@ public:
     void startPairing();
     void sendSpecs(uint32_t delay_time = 0){time_to_send_specs=millis()+delay_time; send_specs=true;}
     void sendPaddleOrientation(uint32_t delay_time = 0){time_to_send_paddle_orientation=millis()+delay_time; send_paddle_orientation=true;}
-    bool isPairing(){return is_pairing;}
+    bool isPairing(){return true; /*is_pairing;*/}
     BLEServer* getBLEServer() { return pServer; } // Для доступа к BLE серверу
     void calibrateIMU() override;
     void calibrateLoads(BladeSideType blade_side) override;
@@ -135,9 +135,11 @@ public:
     void SetAxisDirection(signed char direction, bool save = true);
 
     void clearTrustedDevice();
+    void setSpecs(const PaddleSpecs& sp, bool save = true) override {specs=sp; if (save) saveSpecs();}
     void saveSpecs();
     bool loadSpecs();
     void startTasks();
+
 
 
 

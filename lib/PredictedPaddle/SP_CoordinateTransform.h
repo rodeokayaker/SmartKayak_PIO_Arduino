@@ -107,13 +107,13 @@ public:
      * 
      * Преобразует векторы нормали к лопастям в стандартную систему координат.
      */
-    static void transformBladeOrientation(BladeOrientation& data, AxisDirection axisDirection) {
+    static void transformBladeOrientation(float* rv, float* lv, AxisDirection axisDirection) {
         switch (axisDirection) {
             case X_AXIS_RIGHT:
             case X_AXIS_LEFT:
                 // Ось X вдоль шафта → поворот на 90° вокруг Z
-                rotateVectorAroundZ_90deg(data.rightBladeVector);
-                rotateVectorAroundZ_90deg(data.leftBladeVector);
+                rotateVectorAroundZ_90deg(rv);
+                rotateVectorAroundZ_90deg(lv);
                 
                 // Если направление влево, инвертируем ось вдоль шафта
 //                if (axisDirection == X_AXIS_LEFT) {
@@ -125,8 +125,8 @@ public:
             case Z_AXIS_RIGHT:
             case Z_AXIS_LEFT:
                 // Ось Z вдоль шафта → поворот на 90° вокруг X
-                rotateVectorAroundX_90deg(data.rightBladeVector);
-                rotateVectorAroundX_90deg(data.leftBladeVector);
+                rotateVectorAroundX_90deg(rv);
+                rotateVectorAroundX_90deg(lv);
                 
                 // Если направление влево, инвертируем ось вдоль шафта
 //                if (axisDirection == Z_AXIS_LEFT) {
@@ -146,6 +146,9 @@ public:
                 // Уже в правильной ориентации
                 break;
         }
+    }
+    static void transformBladeOrientation(BladeOrientation& data, AxisDirection axisDirection) {
+        transformBladeOrientation(data.rightBladeVector, data.leftBladeVector, axisDirection);
     }
 
 private:

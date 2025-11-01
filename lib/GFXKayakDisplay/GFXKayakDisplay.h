@@ -1,13 +1,17 @@
 #pragma once
 #include "../Core/Interfaces/IDisplay.h"
-#include <TFT_eSPI.h>
+#include <Arduino_GFX_Library.h>
 
-class TFTSmallDisplay : public KayakDisplay {
+class GFXKayakDisplay : public KayakDisplay {
 
-    TFT_eSPI tft;       // Invoke custom library
+    Arduino_GFX* gfx;       // Invoke custom library
+    uint16_t width;
+    uint16_t height;
+    bool landscape;
+    bool initialized;
     int mode;
-    TaskHandle_t updateTFTTaskHandle;
-    SemaphoreHandle_t tftMutex;
+    TaskHandle_t updateGFXTaskHandle;
+    SemaphoreHandle_t gfxMutex;
     class SmartKayak* kayak;
     bool firstShow;
 
@@ -37,28 +41,35 @@ class TFTSmallDisplay : public KayakDisplay {
         bool scn;
     } debugData;
 
+    struct MotorData {
+        int signal;
+        float force;
+    } motorData;
+
     bool debugScreen;
 
+    int ledPin;
+
 public:
-    TFTSmallDisplay(int frequency = 5);
+    GFXKayakDisplay(Arduino_GFX* gfx, int ledPin = -1, int frequency = 5);
     void begin() override;
+    void setRotation(int rotation);
     void setKayak(SmartKayak* kayak) {
         this->kayak = kayak;
     }
     void updateDisplay() override ;
-//    void updateDisplayTask();
     void clear();
     void setMode(int mode) {
         this->mode = mode;
     }
     void end();
-    ~TFTSmallDisplay();
+    ~GFXKayakDisplay();
     void startTasks();
     void setDebugData(int force, int load, bool scn) override;
     void switchDebugScreen(bool on) override;
     
 private:
-    static void updateTFTTask(void* pvParameters);
+    static void updateGFXTask(void* pvParameters);
     void showStatusLines();
     void showMotorForceScreen();
     void showModeLines();

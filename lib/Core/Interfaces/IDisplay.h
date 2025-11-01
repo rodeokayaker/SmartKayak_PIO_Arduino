@@ -8,7 +8,6 @@
 #ifndef CORE_I_DISPLAY_H
 #define CORE_I_DISPLAY_H
 
-#include <Arduino.h>
 #include "../Types.h"
 #include "IMotor.h"
 #include "ILogger.h"
@@ -33,38 +32,36 @@ public:
 };
 
 // Kayak-specific display base class
+class PredictedPaddle;
+#define N_PADDLES 1
+
 class KayakDisplay {
 protected:
-    KayakDisplayData currentData;
     uint32_t updateInterval;
     uint32_t lastUpdate;
     ILogSwitch* logSwitch;
     IModeSwitch* motorSwitch;
     IMotorDriver* motorDriver;
-
+    PredictedPaddle* predictedPaddle[N_PADDLES];
+    int nPaddles;
 public:
     explicit KayakDisplay(uint32_t interval = 100) 
         : updateInterval(interval), lastUpdate(0), 
-          logSwitch(nullptr), motorSwitch(nullptr), motorDriver(nullptr) {}
+          logSwitch(nullptr), motorSwitch(nullptr), motorDriver(nullptr), nPaddles(0) {
+            for (int i = 0; i < N_PADDLES; i++) {
+                predictedPaddle[i] = nullptr;
+            }
+          }
     
     virtual void begin() = 0;
-    virtual void update(const KayakDisplayData& data) {
+    virtual void update() {
         if (millis() - lastUpdate < updateInterval) {
             return;
         }
-        currentData = data;
         updateDisplay();
         lastUpdate = millis();
     }
     
-    void paddleConnected(bool connected) {
-        currentData.isPaddleConnected = connected;
-    }
-
-    KayakDisplayData getCurrentDisplayData() {
-        return currentData;
-    }
-
     virtual void setLogSwitch(ILogSwitch* logSwitch) {
         this->logSwitch = logSwitch;
     }
@@ -74,6 +71,15 @@ public:
     virtual void setMotorDriver(IMotorDriver* motorDriver) {
         this->motorDriver = motorDriver;
     }
+
+    virtual int addPredictedPaddle(PredictedPaddle* ppaddle){
+        if (nPaddles < N_PADDLES) {
+            predictedPaddle[nPaddles] = ppaddle;
+            nPaddles++;
+        }
+        return nPaddles;
+    }    
+    
 
     virtual void setDebugData(int force, int load, bool scn = false) {}
     virtual void switchDebugScreen(bool on) {}

@@ -1,6 +1,11 @@
 #ifndef FORCEADAPTER_H
 #define FORCEADAPTER_H
+
+#ifdef ARDUINO
 #include "Arduino.h"
+#else
+#define millis() 0
+#endif
 
 class ForceAdapter {
 private:
@@ -12,15 +17,15 @@ private:
 
     int dimmingForce;
     uint32_t dimmingFinishTime;
+    bool goingForwardFlag;
 
 public:
-    ForceAdapter():lastAcceptForceTime(millis()),currentForce(0),dimmingForce(0),dimmingFinishTime(0) {}
+    ForceAdapter():lastAcceptForceTime(millis()),currentForce(0),dimmingForce(0),dimmingFinishTime(0),goingForwardFlag(true) {}
 
     int GetAdaptedForce(int force)
     {
 
         //DELAY FOR STROKE CHANGING DIRECTION
-
         if ((currentForce >0 && force<0) || (currentForce < 0 && force>0)) {
             // if force is changing direction
             if (millis() - lastAcceptForceTime < REVERSE_SWITCH_TIME) {
@@ -71,7 +76,13 @@ public:
 
         }
 
+        if (currentForce != 0) goingForwardFlag = currentForce > 0;
+
         return currentForce;                
+    }
+
+    bool goingForward() {
+        return goingForwardFlag;
     }
 
 };

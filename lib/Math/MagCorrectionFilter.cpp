@@ -1,10 +1,6 @@
 #include "MagCorrectionFilter.h"
 #include <cmath>
-#include <Arduino.h>
 namespace SP_Filters {
-
-
-
 
 DMP_MagFusion::DMP_MagFusion(const DMP_MagFusion::Config& config) 
     : config(config), 

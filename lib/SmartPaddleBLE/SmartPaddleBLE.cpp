@@ -1,4 +1,4 @@
-#include "SmartPaddle.h"
+#include "SmartPaddleBLE.h"
 
 namespace SmartPaddleUUID {
     const char* SERVICE_UUID = "4b2de81d-c131-4636-8d56-83b83758f7ca";
@@ -10,14 +10,14 @@ namespace SmartPaddleUUID {
     const char* BLADE_UUID = "C7D2019D-22C9-40C7-ABFB-28F570217153";
 }
 
-SmartPaddle::~SmartPaddle(){
+SmartPaddleBLE::~SmartPaddleBLE(){
     if(serial) {delete serial; serial=nullptr;}
     if(messageHandler) {delete messageHandler; messageHandler=nullptr;}
 }
 
 
 
-int SmartPaddle::BLEMTU =247;// max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
+int SmartPaddleBLE::BLEMTU =247;// max({sizeof(IMUData), sizeof(loadData), sizeof(OrientationData),  sizeof(BladeData)})+4;
 
 
 

@@ -1,9 +1,9 @@
 #ifndef STROKEPREDICTORGRID_H
 #define STROKEPREDICTORGRID_H
 
-#include "Arduino.h"
 #include "SP_Quaternion.h"
 #include "SP_Vector.h"
+#include "PaddleOrientationCalculator.h"
 #include <unordered_map>
 
 // Конфигурация сетки
@@ -37,20 +37,15 @@ public:
     
     // Основные функции
     void learn(
-        const SP_Math::Quaternion& paddleQuat,        // Текущая ориентация весла
-        const SP_Math::Quaternion& kayakQuat,         // Текущая ориентация каяка
-        const SP_Math::Vector& angularVelocity,       // Угловая скорость (рад/с)
+        PaddleOrientationCalculator* relativeOrientation,
         float currentForce,                            // Текущая сила на тензодатчиках
         bool isForward                                 // Направление гребка
     );
     
     float predict(
-        const SP_Math::Quaternion& paddleQuat,        // Текущая ориентация весла
-        const SP_Math::Quaternion& kayakQuat,         // Текущая ориентация каяка
-        const SP_Math::Vector& angularVelocity,       // Угловая скорость
+        PaddleOrientationCalculator* relativeOrientation,
         float deltaT,                                  // Время предсказания (мс)
         bool isForward,                                // Направление гребка
-        bool useAcceleration = true,                   // Использовать ли ускорение
         float* confidence = nullptr                    // Выходной параметр уверенности
     );
     
@@ -68,16 +63,15 @@ private:
     // Разреженная сетка
     std::unordered_map<uint32_t, GridCell> sparseGrid;
     
-    // История угловых скоростей
-    SP_Math::Vector omegaHistory[5];
-    uint32_t omegaTimestamps[5];
-    uint8_t omegaIndex;
-    bool omegaHistoryFilled;
+
+    int lastLearningCellIdx[3];
+    float lastLearningCellFrac[3];
+    float lastLearningCellValue;
+    uint16_t learningCellTimes;
+    bool lastLearningCellDirection;
     
     // Вспомогательные методы
-    void updateOmegaHistory(const SP_Math::Vector& omega);
-    SP_Math::Vector calculateAngularAcceleration() const;
-    
+
     SP_Math::Quaternion extrapolateOrientation(
         const SP_Math::Quaternion& currentQuat,
         const SP_Math::Vector& omega,
@@ -86,18 +80,7 @@ private:
         bool useAcceleration
     ) const;
     
-    void getPaddleAngles(
-        const SP_Math::Quaternion& relativePaddleQ,
-        float& shaftRotationAngle,
-        float& shaftTiltAngle,
-        float& bladeRotationAngle
-    ) const;
-    
-    SP_Math::Quaternion getRelativeOrientation(
-        const SP_Math::Quaternion& paddleQuat,
-        const SP_Math::Quaternion& kayakQuat
-    ) const;
-    
+
     // Работа с сеткой
     uint32_t computeGridKey(int idxRot, int idxTilt, int idxBlade) const;
     void angleToIndices(
@@ -121,7 +104,7 @@ private:
         bool isForward,
         float* outConfidence = nullptr
     ) const;
-    
+
     void updateGrid(
         float shaftRotation,
         float shaftTilt,
@@ -129,6 +112,7 @@ private:
         float forceValue,
         bool isForward
     );
+    
     
     void updateGridMethodA(
         int idxRot, int idxTilt, int idxBlade,

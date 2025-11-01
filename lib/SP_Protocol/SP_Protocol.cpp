@@ -17,6 +17,7 @@ namespace SP_Protocol {
         const char* CALIBRATE_IMU = "calibrate_imu";
         const char* CALIBRATE_BLADE_ANGLE = "calibrate_blade_angle";
         const char* SEND_SPECS = "send_specs";
+        const char* SEND_PADDLE_ORIENTATION = "send_paddle_orientation";
         const char* START_PAIR = "start_pair";
         const char* SHUTDOWN = "shutdown";
         const char* TARE_LOADS = "tare_loads";
@@ -54,6 +55,9 @@ namespace SP_Protocol {
             const char* PADDLE_TYPE = "paddleType";
             const char* PADDLE_MODEL = "paddleModel";
             const char* LENGTH = "length";
+            const char* BLADE_WEIGHT = "bWei";
+            const char* BLADE_CENTER = "bCen";
+            const char* BLADE_MOMENT_INERTIA = "bMIn";
             const char* IMU_FREQUENCY = "imuFrequency";
             const char* IMU_DISTANCE = "imuDistance";
             const char* HAS_LEFT_BLADE = "hasLeftBlade";

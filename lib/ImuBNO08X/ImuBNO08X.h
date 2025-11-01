@@ -42,6 +42,7 @@ private:
     static volatile bool _haveIMU;
     static sh2_SensorValue_t _value;
     static const size_t kI2CMax = 32;
+    static bool started;
 
     // FreeRTOS task & interrupt handling (ESP32 only)
     #if defined(ARDUINO_ARCH_ESP32)
@@ -85,7 +86,7 @@ public:
     // BNO08X specific methods
     void setInterruptPin(int interruptPin) { this->_interruptPin = interruptPin; }
     int8_t getInterruptPin() { return _interruptPin; }
-    int begin(TwoWire* i2c = &Wire, uint8_t i2cAddress = 0x4B, int8_t interruptPin = -1, int8_t rstPin = -1);
+    int begin(TwoWire* i2c = &Wire, uint8_t i2cAddress = 0, int8_t interruptPin = -1, int8_t rstPin = -1);
     void startServices() override;
     void stopServices() override;
     bool setOrientationFrequency(uint16_t frequency, bool emulate = false) override;

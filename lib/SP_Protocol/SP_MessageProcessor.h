@@ -105,6 +105,7 @@ public:
     static String createCalibrateIMUCommand();
     static String createCalibrateBladeAngleCommand(BladeSideType bladeSide);
     static String createSendSpecsCommand();
+    static String createSendPaddleOrientationCommand();
     static String createStartPairCommand();
     static String createShutdownCommand();
     static String createTareLoadsCommand(BladeSideType bladeSide);

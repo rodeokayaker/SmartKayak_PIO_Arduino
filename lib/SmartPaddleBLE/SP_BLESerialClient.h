@@ -28,23 +28,36 @@ private:
         // Добавляем полученные данные в буфер
         for(size_t i = 0; i < length; i++) {
 //            Serial.print((char)pData[i]);
+//            Serial.printf("Received data: %d\n", pData[i]);
             client->receiveBuffer.add(pData[i]);
         }
     }
 
     bool setupSerialService() {
+        Serial.println("Setting up serial service...");
         BLEClient* client = static_cast<SmartPaddleBLEClient*>(paddle)->getBLEClient();
-        if(!client) return false;
+        if(!client){
+            Serial.println("Failed to get BLE client");
+            return false;
+        }
 
         // Получаем сервис
         serialService = client->getService(SPSerialUUID::SERVICE_UUID);
-        if(!serialService) return false;
+        if(!serialService){
+            Serial.println("Failed to get serial service");
+            return false;
+        }
+        delay(10);
 
         // Получаем характеристики
         txChar = serialService->getCharacteristic(SPSerialUUID::TX_UUID);
+        delay(10);
         rxChar = serialService->getCharacteristic(SPSerialUUID::RX_UUID);
-
-        if(!txChar || !rxChar) return false;
+        delay(10);
+        if(!txChar || !rxChar) {
+            Serial.println("Failed to get serial characteristics");
+            return false;
+        }
 
         // Устанавливаем callback для уведомлений
         if(txChar->canNotify()) {
@@ -55,6 +68,9 @@ private:
             const uint8_t indicationOff[] = {0x0, 0x0};            
             txChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)indicationOn, 2, true);
 
+        } else {
+            Serial.println("Failed to register notify for serial characteristic");
+            return false;
         }
 
         return true;
@@ -64,7 +80,7 @@ private:
      }
 
 public:
-    SP_BLESerialClient(SmartPaddle* p) : 
+    SP_BLESerialClient(SmartPaddleBLE* p) : 
         SP_BLESerial(p)
          { }
 

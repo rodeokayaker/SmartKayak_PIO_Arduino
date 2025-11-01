@@ -36,6 +36,7 @@ volatile bool ImuBNO08X::_haveOrientation;
 volatile bool ImuBNO08X::_haveIMU;
 sh2_SensorValue_t ImuBNO08X::_value;
 
+bool ImuBNO08X::started = false;
 #if defined(ARDUINO_ARCH_ESP32)
 static TaskHandle_t _taskHandle;
 static void taskEntry(void* arg);
@@ -263,7 +264,18 @@ int ImuBNO08X::begin(TwoWire* i2c, uint8_t i2cAddress, int8_t interruptPin, int8
     Serial.println("=== BNO08X IMU Initialization Started ===");
     
     _i2c = i2c ? i2c : &Wire;
-    _i2cAddress = i2cAddress == 0 ? 0x4B : i2cAddress;
+    if (i2cAddress == 0) {
+        _i2c->beginTransmission(0x4A);
+        uint8_t error = _i2c->endTransmission();
+        if (error == 0) {
+            i2cAddress = 0x4A;
+        }
+        else {
+            i2cAddress = 0x4B;
+        }
+    }
+    _i2cAddress = i2cAddress;
+    Serial.printf("Using I2C address: 0x%02X\n", i2cAddress);
     _interruptPin = interruptPin;
     _rstPin = rstPin;
     if (_interruptPin >= 0) pinMode(_interruptPin, INPUT_PULLUP);
@@ -274,9 +286,10 @@ int ImuBNO08X::begin(TwoWire* i2c, uint8_t i2cAddress, int8_t interruptPin, int8
     _hal.read = i2c_read;
     _hal.write = i2c_write;
     _hal.getTimeUs = hal_getTimeUs;
+    started = false;
 
     hwReset();
-    sleepMs(1000); // Увеличиваем время ожидания после сброса
+    sleepMs(500); 
 
     Serial.println("Testing I2C connection to BNO08X...");
     int i = 0;
@@ -319,6 +332,7 @@ int ImuBNO08X::begin(TwoWire* i2c, uint8_t i2cAddress, int8_t interruptPin, int8
         if (logStream) logStream->println(F("sh2_open failed"));
         return 0;
     }
+    started = true;
     Serial.println("✓ SH2 protocol opened successfully");
 
     sh2_setSensorCallback(sensor_cb, nullptr);
@@ -403,6 +417,7 @@ bool ImuBNO08X::testConnection() {
 
 bool ImuBNO08X::setOrientationFrequency(uint16_t frequency, bool emulate) {
     orientationFrequency = frequency;
+    if (!started) return false;
     uint32_t ori_us = orientationFrequency > 0 ? (1000000UL / orientationFrequency) : 10000UL;
     enableReport(SH2_ROTATION_VECTOR, ori_us);
     sleepMs(50);
@@ -413,6 +428,7 @@ bool ImuBNO08X::setOrientationFrequency(uint16_t frequency, bool emulate) {
 bool ImuBNO08X::setIMUFrequency(uint16_t frequency, bool emulate) {
     imuFrequency = frequency;
     uint32_t imu_us = imuFrequency > 0 ? (1000000UL / imuFrequency) : 10000UL;
+    if (!started) return false;
     enableReport(SH2_GAME_ROTATION_VECTOR, imu_us);
     sleepMs(50);
     enableReport(SH2_MAGNETIC_FIELD_CALIBRATED, imu_us);
@@ -427,6 +443,7 @@ bool ImuBNO08X::setIMUFrequency(uint16_t frequency, bool emulate) {
 }
 
 void ImuBNO08X::startServices() {
+    if (!started) return;
     #if defined(ARDUINO_ARCH_ESP32)
     if (ImuBNO08X::_taskHandle == nullptr) {
         xTaskCreatePinnedToCore(ImuBNO08X::taskEntry, "imu_bno08x_task", 4096, this, 5, &ImuBNO08X::_taskHandle, tskNO_AFFINITY);
@@ -485,16 +502,19 @@ void IRAM_ATTR ImuBNO08X::intISR() {
 
 // Implementation of pure virtual methods from ImuSensor
 bool ImuBNO08X::orientationDataReady() {
+    if (!started) return false;
     sh2_service();
     return _haveOrientation;
 }
 
 bool ImuBNO08X::imuDataReady() {
+    if (!started) return false;
     sh2_service();
     return _haveIMU;
 }
 
 bool ImuBNO08X::getOrientation(OrientationData& orientation) {
+    if (!started) return false;
     sh2_service();
     orientation = currentOrientation;
     _haveOrientation = false;
@@ -502,6 +522,7 @@ bool ImuBNO08X::getOrientation(OrientationData& orientation) {
 }
 
 bool ImuBNO08X::getData(IMUData& data) {
+    if (!started) return false;
     sh2_service();
     data = currentData;
     _haveIMU = false;

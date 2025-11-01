@@ -116,9 +116,12 @@ private:
             [this](SP_Command* cmd) {
                 Serial.println("Send specs command");
                 paddle->sendSpecs();
-                paddle->getSerial()->sendString(
-                    SP_MessageProcessor::createSuccessResponse(cmd->command.c_str(), "")
-                );
+            });
+
+        registerCommand(SP_Protocol::Commands::SEND_PADDLE_ORIENTATION,
+            [this](SP_Command* cmd) {
+                Serial.println("Send paddle orientation command");
+                paddle->sendPaddleOrientation();
             });
 
         // Старт сопряжения
@@ -192,6 +195,9 @@ private:
                 paddle->specs.firmwareVersion = value.get<int>(SP_Protocol::DataTypes::Specs::FIRMWARE_VERSION, 0);
                 paddle->specs.imuDistance = value.get<float>(SP_Protocol::DataTypes::Specs::IMU_DISTANCE, 0.0f);
                 paddle->specs.axisDirection = (AxisDirection)value.get<int>(SP_Protocol::DataTypes::Specs::AXIS_DIRECTION, (int)Y_AXIS_RIGHT);
+                paddle->specs.bladeWeight = value.get<float>(SP_Protocol::DataTypes::Specs::BLADE_WEIGHT, 0.3f);
+                paddle->specs.bladeCenter = value.get<float>(SP_Protocol::DataTypes::Specs::BLADE_CENTER, 0.20f);
+                paddle->specs.bladeMomentInertia = value.get<float>(SP_Protocol::DataTypes::Specs::BLADE_MOMENT_INERTIA, 0.01f);
                 paddle->specs.paddleID = paddleID; // Восстанавливаем оригинальный ID
                 
                 paddle->saveSpecs();
@@ -238,13 +244,19 @@ void interruptHandler(){
 
 class SPServerRTOS{
     private:
+    static uint32_t lastLoadData;
+    static uint32_t lastIMUData;
+    static uint32_t lastOrientationData;
     static SmartPaddleBLEServer* mainPaddle;
 
     static void onIMUData(const IMUData &data){
         if (mainPaddle->connected()) {
             if (mainPaddle->sendData) {
-                mainPaddle->imuQueue.send(data);
-                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                if (millis()-lastIMUData > 5) {
+                    mainPaddle->imuQueue.send(data);
+                    lastIMUData = millis();
+                    xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                }
             }
         }
     }
@@ -252,9 +264,13 @@ class SPServerRTOS{
     static void onOrientationData(const OrientationData &data){
         if (mainPaddle->connected()) {
             if (mainPaddle->sendData) {
-                mainPaddle->orientationQueue.send(data);
-                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                if (millis()-lastOrientationData > 5) {
+                    mainPaddle->orientationQueue.send(data);
+                    lastOrientationData = millis();
+                    xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                }
             }
+
         }
 
     }
@@ -262,11 +278,14 @@ class SPServerRTOS{
     static void onLoadData(const loadData &data, BladeSideType bladeSide){
         if (mainPaddle->connected()) {
             if (mainPaddle->sendData) {
-                mainPaddle->loadsensorQueue.send(data);
-                xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                if (millis()-lastLoadData > 5) {
+                    mainPaddle->loadsensorQueue.send(data);
+                    lastLoadData = millis();
+                    xTaskNotifyGive(mainPaddle->bleSendTaskHandle);
+                }
             }
         }
-    }
+    }   
 
 // Задача чтения тензодатчиков
 /*
@@ -377,9 +396,11 @@ class SPServerRTOS{
 
         paddle->imu->onOrientation(SPServerRTOS::onOrientationData);
         paddle->imu->onIMUData(SPServerRTOS::onIMUData);
+        Serial.printf("Starting IMU services\n");
         paddle->imu->startServices();
 
         paddle->loads->onLoadData(SPServerRTOS::onLoadData, false);
+        Serial.printf("Starting Load cell services\n");
         paddle->loads->startServices();
 
 /*        xTaskCreatePinnedToCore(
@@ -406,6 +427,7 @@ class SPServerRTOS{
         */
         
         // Задачи на ядре 1
+        Serial.printf("Starting BLE send task\n");
         xTaskCreatePinnedToCore(
             SPServerRTOS::bleSendTask,
             "BLESend",
@@ -415,7 +437,7 @@ class SPServerRTOS{
             &paddle->bleSendTaskHandle,
             1
         );
-    
+        
         xTaskCreatePinnedToCore(
             SPServerRTOS::bleReceiveTask,
             "BLEReceive",
@@ -443,6 +465,9 @@ class SPServerRTOS{
 };
 
 SmartPaddleBLEServer* SPServerRTOS::mainPaddle = nullptr;
+uint32_t SPServerRTOS::lastLoadData = 0;
+uint32_t SPServerRTOS::lastIMUData = 0;
+uint32_t SPServerRTOS::lastOrientationData = 0;
 
 void SmartPaddleBLEServer::calibrateIMU(){
     sendData=false; 
@@ -509,7 +534,7 @@ bool SmartPaddleBLEServer::updateLoads(){
 
 // Конструктор класса SmartPaddle
 SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
-    : SmartPaddle(),
+    : SmartPaddleBLE(),
       orientationQueue(SENSOR_QUEUE_SIZE),
       imuQueue(SENSOR_QUEUE_SIZE),
       loadsensorQueue(SENSOR_QUEUE_SIZE),
@@ -764,10 +789,12 @@ void SmartPaddleBLEServer::startAdvertising(BLEAdvertising* advertising){
 void SmartPaddleBLEServer::connectTimerCallback(TimerHandle_t timer) {
     SmartPaddleBLEServer* server = static_cast<SmartPaddleBLEServer*>(pvTimerGetTimerID(timer));
     if (server->connected()){
-        server->sendData = true;
-        BLEDevice::stopAdvertising();
-        server->sendSpecs(1500);
+        server->sendSpecs(1000);
+        vTaskDelay(pdMS_TO_TICKS(50));
         server->sendPaddleOrientation(1500);
+        vTaskDelay(pdMS_TO_TICKS(50));
+        server->sendData = true;
+
     }
 }
 
@@ -787,9 +814,12 @@ bool SmartPaddleBLEServer::connect() {
     }
     isConnected = true;
     sendData=false;
+
+    BLEDevice::stopAdvertising();
+
     xTimerStart(connectTimer, 0);
-    if (eventHandler)
-        eventHandler->onConnect(this);
+    for (int i = 0; i < eventHandlerCount; i++) 
+        eventHandler[i]->onConnect(this);
 
     return true;
 }
@@ -801,8 +831,8 @@ void SmartPaddleBLEServer::disconnect() {
     if (isConnected){
         isConnected = false;
         pServer->disconnect(conn_id);
-        if (eventHandler)
-            eventHandler->onDisconnect(this);
+        for (int i = 0; i < eventHandlerCount; i++) 
+            eventHandler[i]->onDisconnect(this);
         vTaskDelay(pdMS_TO_TICKS(500));  // неблокирующая задержка
         startAdvertising(BLEDevice::getAdvertising());
     }
@@ -812,7 +842,7 @@ void SmartPaddleBLEServer::setTrustedDevice(BLEAddress* address) {
 
     Preferences prefs;
     prefs.begin(prefsName.c_str(), false);
-    prefs.putString("trustedDevice_string", address->toString().c_str());
+    prefs.putString("trustedDevStr", address->toString().c_str());
     prefs.putBytes("trustedDevice", address->getNative(), sizeof(esp_bd_addr_t));
     prefs.end();
     
@@ -846,7 +876,7 @@ void SmartPaddleBLEServer::clearTrustedDevice() {
     Preferences prefs;
     prefs.begin(prefsName.c_str(), false);
     prefs.remove("trustedDevice");
-    prefs.remove("trustedDevice_string");
+    prefs.remove("trustedDevStr");
     prefs.end();
     
     if (trustedDevice) {
@@ -953,39 +983,56 @@ void SmartPaddleBLEServer::updateBLE(){
         if(loadsensorQueue.receive(loadSensorData,0)) {
             forceCharacteristic->setValue((uint8_t*)&loadSensorData, sizeof(loadData));
             forceCharacteristic->notify();
+//            vTaskDelay(pdMS_TO_TICKS(1));
         }
 
         if(imuQueue.receive(imuDataStruct,0)) {
             imuCharacteristic->setValue((uint8_t*)&imuDataStruct, sizeof(IMUData));
             imuCharacteristic->notify();
+//            vTaskDelay(pdMS_TO_TICKS(1));
         }
 
 
         if(orientationQueue.receive(orientationData,0)) {
             orientationCharacteristic->setValue((uint8_t*)&orientationData, sizeof(OrientationData));
             orientationCharacteristic->notify();
+//            vTaskDelay(pdMS_TO_TICKS(1));
         }
 
-        if(send_specs && millis()>=time_to_send_specs) {
-            serial->sendString(SP_MessageProcessor::createSpecsMessage(specs));
-            send_specs = false;
-
+        if (send_specs) {
+            if (millis() > time_to_send_specs) {
+                serial->sendString(SP_MessageProcessor::createSpecsMessage(specs));
+                send_specs = false;
+            }
         }
-
-        if (send_paddle_orientation && millis()>=time_to_send_paddle_orientation) {
-            serial->sendString(SP_MessageProcessor::createBladeOrientationMessage(bladeOrientation));
-            send_paddle_orientation = false;
+        if (send_paddle_orientation) {
+            if (millis() > time_to_send_paddle_orientation) {
+                serial->sendString(SP_MessageProcessor::createBladeOrientationMessage(bladeOrientation));
+                send_paddle_orientation = false;
+            }
         }
-
     }
     if (connected()&&serial) serial->update();
 
 }
+/*
+void SmartPaddleBLEServer::sendPaddleOrientation(){
+    if (connected()&&serial) {
+        serial->sendString(SP_MessageProcessor::createBladeOrientationMessage(bladeOrientation));
+    }
+}
+
+void SmartPaddleBLEServer::sendSpecs(){
+    if (connected()&&serial) {
+        serial->sendString(SP_MessageProcessor::createSpecsMessage(specs));
+    }
+}
+    */
 
 void SmartPaddleBLEServer::shutdown() {
     logStream->println("Shutdown Paddle");
-    if (eventHandler)
-        eventHandler->onShutdown(this);
+    for (int i = 0; i < eventHandlerCount; i++) 
+        eventHandler[i]->onShutdown(this);
 }
 
 IMUData SmartPaddleBLEServer::getIMUData(){

@@ -3,7 +3,7 @@
 
 #include "../Core/Interfaces/IMotor.h"
 #include "Arduino.h"
-#include <ESP32Servo.h>
+#include "ESP32Servo.h"
 
 #define IDLE_TIME 200  // время на остановку мотора при переключении направления
 #define STOP_TIME 500  // время линейного плавного затухания

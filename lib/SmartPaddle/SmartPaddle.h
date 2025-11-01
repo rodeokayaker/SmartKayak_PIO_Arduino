@@ -5,73 +5,66 @@
 #ifndef SmartPaddle_h
 #define SmartPaddle_h
 
-#include <Arduino.h>
-#include "SP_BLESerial.h"
+#ifndef SP_MAX_EVENT_HANDLERS
+#define SP_MAX_EVENT_HANDLERS 2
+#endif
+
+
 #include "../Core/Interfaces/IIMUSensor.h"
 #include "../Core/Interfaces/ILoadCell.h"
 #include "../Core/Types.h"
 #include "SP_EventHandler.h"
 
-#define SENSOR_QUEUE_SIZE 10
-
-
-// UUID для BLE сервисов и характеристик
-namespace SmartPaddleUUID {
-    extern const char* SERVICE_UUID;
-    extern const char* FORCE_UUID;
-    extern const char* IMU_UUID;
-    extern const char* STATUS_UUID;
-    extern const char* SPECS_UUID;
-    extern const char* ORIENTATION_UUID;
-    extern const char* BLADE_UUID;    
-}
-
-class SP_BLESerial;
 
 // Class for smart paddle unified interface
 class SmartPaddle {
 
     protected:
         PaddleSpecs specs;
-        PaddleStatus status;
+        SP_EventHandler* eventHandler[SP_MAX_EVENT_HANDLERS];
+        int eventHandlerCount;
         BladeOrientation bladeOrientation;
-        bool isConnected;                  // Paddle connection status
-        SP_BLESerial* serial;
-        SP_MessageHandler* messageHandler;
-        static int BLEMTU;
-        SP_EventHandler* eventHandler;
 
     public:
         SmartPaddle():
             specs(),
-            status(),
-            isConnected(false),
-            serial(nullptr),
-            messageHandler(nullptr),
-            eventHandler(nullptr){}
-        virtual void begin(const char* deviceName)=0;    
-        virtual uint32_t paddleMillis()=0;
-
+            eventHandlerCount(0){
+                specs.paddleID = "";
+                bladeOrientation.rightBladeAngle = 0;
+                bladeOrientation.leftBladeAngle = 0;
+            }
         virtual IMUData getIMUData()=0;
         virtual loadData getLoadData()=0;
         virtual OrientationData getOrientationData()=0;
     
-        virtual void disconnect()=0;               // Disconnect paddle
-        bool connected() {return isConnected;}
-        virtual void startPairing()=0;
-        virtual SP_BLESerial* getSerial() {return serial;}
-        
         virtual void calibrateIMU()=0;
         virtual void calibrateLoads(BladeSideType blade_side)=0;
         virtual void calibrateBladeAngle(BladeSideType blade_side)=0;
         
         virtual BladeOrientation getBladeAngles() {return bladeOrientation;}
         virtual PaddleSpecs getSpecs() {return specs;}
-        virtual PaddleStatus getStatus() {return status;}
+        virtual void setSpecs(const PaddleSpecs& specs, bool save = true) {this->specs = specs;}
         
-        virtual ~SmartPaddle();
+        virtual ~SmartPaddle() {for (int i = 0; i < eventHandlerCount; i++) {delete eventHandler[i]; eventHandler[i] = nullptr;}}
         
-        void setEventHandler(SP_EventHandler* handler) {eventHandler = handler;}
+        int setEventHandler(SP_EventHandler* handler) 
+        {
+            if (eventHandlerCount>=SP_MAX_EVENT_HANDLERS) return -1;
+            eventHandler[eventHandlerCount++] = handler;
+            return eventHandlerCount;
+        }
+        int removeEventHandler(int index) 
+        {
+            if (index<=0 || index>eventHandlerCount) return -1;
+            for (int i = index; i < eventHandlerCount-1; i++) {
+                eventHandler[i] = eventHandler[i+1];
+            }
+            eventHandler[eventHandlerCount-1] = nullptr;
+            eventHandlerCount--;
+            return eventHandlerCount;
+        }
+        virtual bool operating()=0;
+        virtual uint32_t paddleMillis()=0;
  
 };
 

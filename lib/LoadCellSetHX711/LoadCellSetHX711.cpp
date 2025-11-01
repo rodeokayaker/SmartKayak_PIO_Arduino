@@ -48,6 +48,11 @@ bool LoadCellSetHX711::begin(uint8_t doutR_pin, uint8_t sclkR_pin, uint8_t doutL
     }
     
     readyToRead = true;
+    currentData.forceL = 0.0f;
+    currentData.forceR = 0.0f;
+    currentData.forceL_raw = 0;
+    currentData.forceR_raw = 0;
+    currentData.timestamp = 0;
     return true;
 }
 
@@ -168,7 +173,11 @@ void LoadCellSetHX711::calibrateBlade(BladeSideType bladeSide, float weight) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     
-    float scale_factor = weight / ((float)sum / 200);
+    float scale_factor;
+    if (fabs(sum) < 0.001f)
+        scale_factor = 1.0f;
+    else
+        scale_factor = weight / ((float)sum / 200);
     calibrationData.offset[scaleIndex] = tare_raw * scale_factor;
     calibrationData.scale[scaleIndex] = scale_factor;
     
@@ -233,19 +242,25 @@ void LoadCellSetHX711::tareBlade(BladeSideType bladeSide) {
 
 void LoadCellSetHX711::tare(BladeSideType bladeSide) {
     if (bladeSide == ALL_BLADES) {
-        tareBlade(RIGHT_BLADE);
-        tareBlade(LEFT_BLADE);
+        if (this->bladeSide == RIGHT_BLADE || this->bladeSide == ALL_BLADES)
+            tareBlade(RIGHT_BLADE);
+        if (this->bladeSide == LEFT_BLADE || this->bladeSide == ALL_BLADES)
+            tareBlade(LEFT_BLADE);
     } else {
-        tareBlade(bladeSide);
+        if (this->bladeSide == bladeSide || this->bladeSide == ALL_BLADES)
+            tareBlade(bladeSide);
     }
 }
 
 void LoadCellSetHX711::calibrate(BladeSideType bladeSide, float weight) {
     if (bladeSide == ALL_BLADES) {
-        calibrateBlade(RIGHT_BLADE, weight);
-        calibrateBlade(LEFT_BLADE, weight);
+        if (this->bladeSide == RIGHT_BLADE || this->bladeSide == ALL_BLADES)
+            calibrateBlade(RIGHT_BLADE, weight);
+        if (this->bladeSide == LEFT_BLADE || this->bladeSide == ALL_BLADES)
+            calibrateBlade(LEFT_BLADE, weight);
     } else {
-        calibrateBlade(bladeSide, weight);
+        if (this->bladeSide == bladeSide || this->bladeSide == ALL_BLADES)
+            calibrateBlade(bladeSide, weight);
     }
 }
 
@@ -317,7 +332,7 @@ void LoadCellSetHX711::taskEntry(void* arg) {
     
     for (;;) {
         // Wait for notification from interrupt
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
         
         // Read right scale if ready
         if (loadcell->scaleR.is_ready()) {
@@ -325,6 +340,7 @@ void LoadCellSetHX711::taskEntry(void* arg) {
             loadcell->currentData.forceR_raw = rawR;
             loadcell->currentData.forceR = rawR * loadcell->calibrationData.scale[0] - loadcell->calibrationData.offset[0];
             loadcell->rightUpdated = true;
+//            Serial.printf("Right HX711: %d, timestamp: %d\n", rawR, millis());
         }
         
         // Read left scale if ready
@@ -333,6 +349,7 @@ void LoadCellSetHX711::taskEntry(void* arg) {
             loadcell->currentData.forceL_raw = rawL;
             loadcell->currentData.forceL = rawL * loadcell->calibrationData.scale[1] - loadcell->calibrationData.offset[1];
             loadcell->leftUpdated = true;
+//            Serial.printf("Left HX711: %d, timestamp: %d\n", rawL, millis());
         }
         
         // Update timestamp

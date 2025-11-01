@@ -25,7 +25,7 @@ constexpr int I2C_SCL = IMU_SCL;
 constexpr int INTERRUPT_PIN = IMU_INTA; //0;
 constexpr int RESET_PIN = IMU_RST;
 constexpr int POWER_PIN = 20;
-constexpr int SWITCH_OFF_PIN = 4;
+constexpr int SWITCH_OFF_PIN = 35;
 constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
 
 
@@ -33,7 +33,7 @@ constexpr uint32_t SHUTDOWN_DELAY_MS = 60000; // 1 минута
 // FreeRTOS определения
 #define SENSOR_STACK_SIZE 4096
 #define IMU_STACK_SIZE 4096
-#define LOAD_FREQUENCY 10
+#define LOAD_FREQUENCY 100
 #define IMU_FREQUENCY 100
 #define BLE_FREQUENCY 100
 #define BLE_SERIAL_FREQUENCY 10
@@ -46,7 +46,7 @@ TaskHandle_t serialTaskHandle = NULL;
 
 
 // Глобальные объекты
-LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, RIGHT_BLADE);
+LoadCellSetADS1220 loadsCellSet("LoadsADS1220", ONE_BLADE, LEFT_BLADE);
 SmartPaddleBLEServer paddle("SmartPaddle"); //  работаем как сервер
 ImuBNO08X imuSensor("IMU_PADDLE_MAIN_BNO08X"); 
 
@@ -299,7 +299,7 @@ void setup() {
     Serial.println("\nSmart Paddle Initializing...");
     
     // Инициализация тензодатчиков
-    loadsCellSet.begin(LOADCELL_CS, LOADCELL_MISO, LOADCELL_MOSI, LOADCELL_SCK, LOADCELL_DRDY);
+    loadsCellSet.begin(LOADCELL_SCK, LOADCELL_MISO, LOADCELL_MOSI, LOADCELL_CS, LOADCELL_DRDY);
     loadsCellSet.setFrequency(LOAD_FREQUENCY);
     
 
@@ -343,7 +343,6 @@ void setup() {
     
     paddle.begin("SmartPaddle v. 1.2");
     OffButton.begin();
-    
     xTaskCreatePinnedToCore(
         serialCommandTask,
         "SerialCmd",
@@ -355,8 +354,6 @@ void setup() {
     );
 
     paddle.startTasks();
-
-
     digitalWrite(POWER_PIN, HIGH);   
 }
 

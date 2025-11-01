@@ -13,7 +13,6 @@
 #ifndef CORE_I_LOAD_CELL_H
 #define CORE_I_LOAD_CELL_H
 
-#include <Arduino.h>
 #include "../Types.h"
 
 /**
@@ -58,8 +57,10 @@ public:
     {
         if (paddleType == TWO_BLADES)
             this->bladeSide = ALL_BLADES;
-        else
+        else {
             this->bladeSide = bladeSide;
+            singleNotify = true;
+        }
     }
     
     // Data acquisition
@@ -86,7 +87,10 @@ public:
     void setLogStream(Stream* logStream) { this->logStream = logStream; }
     void onLoadData(void (*loadDataCb)(const loadData&, BladeSideType), bool singleNotify = false) { 
         this->loadDataCb = loadDataCb; 
-        this->singleNotify = singleNotify; 
+        if (bladeSide == ALL_BLADES)
+            this->singleNotify = singleNotify;
+        else
+            this->singleNotify = true; 
     }
     
     virtual ~ILoadCellSet() = default;

@@ -11,7 +11,8 @@
 #include "ImuBNO08X.h"
 
 #include "ChinaMotor.h"
-#include "TFTSmallDisplay.h"
+#include "GFXKayakDisplay.h"
+#include "CustomILI9341.h"
 #include "../lib/Core/Types.h"
 #include "LoadCellHX711.h"
 
@@ -196,6 +197,10 @@ PowerButton powerButton(BUTTON1_PIN);
 AmperikaCRLog SDlog(SD_CS, SD_SCK, SD_MISO, SD_MOSI);
 ChinaMotor motor(MOTOR_PWM);
 IIMUSensor* imu_sensor = &imu_bno08x;
+
+Arduino_ESP32SPI bus(TFT_DC, TFT_CS, TFT_SCLK, TFT_MOSI, TFT_MISO);
+CustomILI9341 gfx(&bus, TFT_RST, 0, false);
+GFXKayakDisplay gfxKayakDisplay(&gfx, TFT_BL);
 
 class LogButton: public ButtonDriver, public ILogSwitch {
     private:
@@ -768,15 +773,14 @@ class PaddleEventHandler: public SP_EventHandler {
         specs.hasRightBlade = false;
         specs.axisDirection = Y_AXIS_RIGHT;
         specs.axisDirectionSign = 1;
-        specs.imuFrequency = 100;*/
+        specs.imuFrequency = 100;
     
-        paddle->setSpecs(specs, true);
+        paddle->setSpecs(specs, true);*/
     }
     
 };
 
 PaddleEventHandler paddleEventHandler;
-TFTSmallDisplay kayakTFTDisplay;
 
 /*
 void setMagnitometerCalibration() {
@@ -810,7 +814,7 @@ void setup() {
     while (!Serial) delay(10);
     
     // Детальная проверка памяти на каждом этапе
-    printMemoryInfo("INITIAL");
+//    printMemoryInfo("INITIAL");
     
     Wire.begin(IMU_SDA, IMU_SCL);
     Wire.setClock(400000);
@@ -819,14 +823,14 @@ void setup() {
 
     // Инициализация дисплея
 
-    kayakDisplay = &kayakTFTDisplay;
-    kayakTFTDisplay.setKayak(&kayak);
+    kayakDisplay = &gfxKayakDisplay;
+    gfxKayakDisplay.setKayak(&kayak);
     kayakDisplay->setLogSwitch(&logButton);
     kayakDisplay->setMotorSwitch(&powerButton);
     kayakDisplay->setMotorDriver(&motor);
     kayakDisplay->begin();
    
-   SDCardReady = SDlog.begin("SD_LOG");
+ //  SDCardReady = SDlog.begin("SD_LOG");
 
     SD_Logger = &SDlog;
 
@@ -839,7 +843,7 @@ void setup() {
     paddle.setEventHandler(&paddleEventHandler);
     
     paddle.begin("SmartKayak 1.0");
-    printMemoryInfo("AFTER PADDLE INIT");
+//    printMemoryInfo("AFTER PADDLE INIT");
     Serial.println("Paddle initialized");
     
     Serial.println("Starting IMU initialization...");
@@ -873,7 +877,7 @@ void setup() {
     Serial.print("Smart Kayak > ");
     Serial.println("Creating tasks...");
     
-    printMemoryInfo("BEFORE TASK CREATION");
+//    printMemoryInfo("BEFORE TASK CREATION");
     
     // Создание задач с проверкой успешности
     BaseType_t result = xTaskCreatePinnedToCore(
@@ -957,9 +961,9 @@ void setup() {
 
     paddle.startTasks();
     kayak.startTasks();
-    kayakTFTDisplay.startTasks();
+    gfxKayakDisplay.startTasks();
     
-    printMemoryInfo("AFTER ALL INITIALIZATION");
+//    printMemoryInfo("AFTER ALL INITIALIZATION");
 
 }
 

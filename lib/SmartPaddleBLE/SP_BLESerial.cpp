@@ -5,7 +5,7 @@
 
 #include "SP_BLESerial.h"
 #include <ArduinoJson.h>
-#include "SmartPaddle.h"
+#include "SmartPaddleBLE.h"
 #include <BLEDevice.h>
 namespace SPSerialUUID {
     const char* SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -13,7 +13,7 @@ namespace SPSerialUUID {
     const char* TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 }
 
-SP_BLESerial::SP_BLESerial(SmartPaddle* p) : 
+SP_BLESerial::SP_BLESerial(SmartPaddleBLE* p) : 
     paddle(p),
     started(false),
     receiveBuffer(),

@@ -29,6 +29,7 @@ namespace SP_Protocol {
         extern const char* CALIBRATE_IMU;          ///< Калибровка IMU
         extern const char* CALIBRATE_BLADE_ANGLE;   ///< Калибровка угла лопасти
         extern const char* SEND_SPECS;             ///< Отправка спецификаций
+        extern const char* SEND_PADDLE_ORIENTATION; ///< Отправка ориентации лопасти
         extern const char* START_PAIR;              ///< Старт пары
         extern const char* SHUTDOWN;                ///< Выключение
         extern const char* SET_MAGNETOMETER_CALIBRATION; ///< Калибровка магнитометра
@@ -89,6 +90,9 @@ namespace SP_Protocol {
             extern const char* PADDLE_TYPE;
             extern const char* PADDLE_MODEL;
             extern const char* LENGTH;
+            extern const char* BLADE_WEIGHT;
+            extern const char* BLADE_CENTER;
+            extern const char* BLADE_MOMENT_INERTIA;
             extern const char* IMU_DISTANCE;
             extern const char* IMU_FREQUENCY;
             extern const char* HAS_LEFT_BLADE;

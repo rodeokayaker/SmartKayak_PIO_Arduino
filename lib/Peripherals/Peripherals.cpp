@@ -9,6 +9,7 @@ LEDDriver::LEDDriver(int pin) :
     ledTimer(nullptr) {}
 
 void LEDDriver::begin() {
+    if (pin == -1) return;
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
     is_on = false;
@@ -17,7 +18,7 @@ void LEDDriver::begin() {
     xTaskCreate(
         ledTask,
         "LED_Task",
-        2048,
+        1024,
         this,
         1,
         &ledTaskHandle
@@ -34,6 +35,7 @@ void LEDDriver::begin() {
 }
 
 void LEDDriver::on() {
+    if (pin == -1) return;
     if(ledTimer) {
         xTimerStop(ledTimer, 0);
     }
@@ -43,6 +45,7 @@ void LEDDriver::on() {
 }
 
 void LEDDriver::off() {
+    if (pin == -1) return;
     if(ledTimer) {
         xTimerStop(ledTimer, 0);
     }
@@ -53,6 +56,7 @@ void LEDDriver::off() {
 
 void LEDDriver::Blink(uint32_t period_on_ms, uint32_t period_off_ms, 
                      uint32_t duration_ms, LED_MODE finish_mode) {
+    if (pin == -1) return;
     if(!ledTimer) return;
     
     cycle_period_on = period_on_ms;
@@ -75,6 +79,7 @@ void LEDDriver::Blink(uint32_t period_on_ms, uint32_t period_off_ms,
 }
 
 LED_MODE LEDDriver::getMode() { 
+    if (pin == -1) return LED_OFF;
     if(in_cycle) return LED_CYCLE;
     return is_on ? LED_ON : LED_OFF;
 }
@@ -141,8 +146,8 @@ ButtonDriver::ButtonDriver(int pin) :
     last_pin_state(HIGH) {}
 
 void ButtonDriver::begin(int frequency) {
+    if (pin == -1) return;
     main_frequency = frequency;
-    digitalWrite(pin, HIGH);
     pinMode(pin, INPUT_PULLUP);
     last_pin_state = digitalRead(pin);
     

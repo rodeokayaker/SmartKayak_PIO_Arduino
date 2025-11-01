@@ -2,6 +2,10 @@
 #include "../Core/Interfaces/IIMUSensor.h"
 #include "Arduino.h"
 #include "SP_Quaternion.h"
+#include "StrokePredictorGrid.h"
+#include "../SmartKayak_Algorythms/OrientationUtils.h"
+#include "Preferences.h"
+
 #define POWER_LOW_SCALE 1.2f
 #define POWER_MEDIUM_SCALE 2.6f
 #define POWER_HIGH_SCALE 4.0f
@@ -64,10 +68,8 @@ class SmartKayakRTOS{
         mainKayak->kayakOrientationQuat[2]=data.q2;
         mainKayak->kayakOrientationQuat[3]=data.q3;
 
-                //---------------------------------TEMPORARY FIX---------------------------------
-                FIXROTATIONVECTOR(mainKayak->kayakOrientationQuat[0], mainKayak->kayakOrientationQuat[1], mainKayak->kayakOrientationQuat[2], mainKayak->kayakOrientationQuat[3], 3);
-                //---------------------------------TEMPORARY FIX---------------------------------
-        
+        mainKayak->predictedPaddle->updateKayakOrientation(data);    
+                
     }
 
 
@@ -78,123 +80,34 @@ class SmartKayakRTOS{
 
         kayak->imu->onIMUData(SmartKayakRTOS::onIMUData);
         kayak->imu->onOrientation(SmartKayakRTOS::onOrientation);
-
         kayak->imu->startServices();
-    
-
     }
 };
 
-SmartKayak::SmartKayak():
+SmartKayak::SmartKayak(String prefs_name):
+prefsName(prefs_name),
 paddle(nullptr),
 motorDriver(nullptr),
 modeSwitch(nullptr),
 imu(nullptr),
 display(nullptr),
 currentBladeSide(BladeSideType::ALL_BLADES),
-currentForceGramms(0)
+currentForceGramms(0),
+predictorMode(0),
+predictedTimeUsed(0),
+predictedForceUsed(false),
+usingPredictedForce(false),
+predictedPaddle(nullptr)
 {
-    currentLoadCellData.forceR = 0;
-    currentLoadCellData.forceL = 0;
-    currentLoadCellData.forceR_raw = 0;
-    currentLoadCellData.forceL_raw = 0;
-    currentLoadCellData.timestamp = 0;
+
+
 }
 
 void SmartKayak::begin() {
+    loadSpecs();
 
 //    imu->begin();
 //    imu->setOrientationFrequency(100);
-
-}
-
-void getPaddleAngles(const SP_Math::Quaternion& currentPaddleQ, const SP_Math::Quaternion& currentKayakQ, 
-                     float& shaftRotationAngle,  // поворот вокруг оси Z каяка
-                     float& shaftTiltAngle,      // наклон вокруг оси X каяка
-                     float& bladeRotationAngle)  // поворот вокруг оси Y весла
-{
-
-    SP_Math::Vector paddleY(0, 1, 0);  // ось шафта
-    SP_Math::Vector globalZ(0, 0, 1);  // вертикальный вектор
-    
-    // Поворачиваем векторы в текущее положение
-    SP_Math::Vector currentShaftDir = currentKayakQ.conjugate().rotate(currentPaddleQ.rotate(paddleY));
-    SP_Math::Vector currentZinPaddle = currentPaddleQ.conjugate().rotate(globalZ); // Вертикальный вектор в системе весла
-    
-    // 5. Вычисляем углы поворота шафта
-    // Проекция оси шафта на плоскость XY каяка
-    SP_Math::Vector shaftProjectionXY(currentShaftDir.x(), currentShaftDir.y(), 0);
-    shaftProjectionXY.normalize();
-    
-    // Угол поворота шафта вокруг Z (в плоскости XY)
-    SP_Math::Vector sideDir(0,1,0);
-
-    // 5. Вычисляем угол между векторами
-    float cosAngle = sideDir.dot(currentShaftDir);
-    float crossZ = sideDir.x() * currentShaftDir.y() - sideDir.y() * currentShaftDir.x();    
-
-    shaftRotationAngle = atan2(crossZ, cosAngle) * RAD_TO_DEG;
-    
-    // Угол наклона шафта относительно плоскости XY
-    shaftTiltAngle = asin(currentShaftDir.z()) * RAD_TO_DEG;
-    
-    // 6. Вычисляем угол поворота лопасти вокруг оси шафта
-    // Проекция нормали лопасти на плоскостьX,Z
-
-
-    // Угол поворота лопасти
-    bladeRotationAngle = atan2(currentZinPaddle.x(),currentZinPaddle.z());
-    bladeRotationAngle = bladeRotationAngle * RAD_TO_DEG;
-}
-
-// Перегруженная версия для работы с относительной ориентацией весла
-void getPaddleAngles(const SP_Math::Quaternion& relativePaddleQ, 
-                     float& shaftRotationAngle,  // поворот вокруг оси Z каяка
-                     float& shaftTiltAngle,      // наклон вокруг оси X каяка
-                     float& bladeRotationAngle)  // поворот вокруг оси Y весла
-{
-    SP_Math::Vector paddleY(0, 1, 0);  // ось шафта
-    SP_Math::Vector globalZ(0, 0, 1);  // вертикальный вектор
-    
-    // Поворачиваем векторы с использованием относительной ориентации
-    SP_Math::Vector currentShaftDir = relativePaddleQ.rotate(paddleY);
-    SP_Math::Vector currentZinPaddle = relativePaddleQ.conjugate().rotate(globalZ); // Вертикальный вектор в системе весла
-    
-    // Вычисляем углы поворота шафта
-    // Проекция оси шафта на плоскость XY каяка
-    SP_Math::Vector shaftProjectionXY(currentShaftDir.x(), currentShaftDir.y(), 0);
-    shaftProjectionXY.normalize();
-    
-    // Угол поворота шафта вокруг Z (в плоскости XY)
-    SP_Math::Vector sideDir(0,1,0);
-
-    // Вычисляем угол между векторами
-    float cosAngle = sideDir.dot(currentShaftDir);
-    float crossZ = sideDir.x() * currentShaftDir.y() - sideDir.y() * currentShaftDir.x();    
-
-    shaftRotationAngle = atan2(crossZ, cosAngle) * RAD_TO_DEG;
-    
-    // Угол наклона шафта относительно плоскости XY
-    shaftTiltAngle = asin(currentShaftDir.z()) * RAD_TO_DEG;
-    
-    // Угол поворота лопасти вокруг оси шафта
-    bladeRotationAngle = atan2(currentZinPaddle.x(),currentZinPaddle.z());
-    bladeRotationAngle = bladeRotationAngle * RAD_TO_DEG;
-}
-
-BladeSideType getLowerBladeSide(const SP_Math::Quaternion& paddleQ, int Y_axis_sign) {
-    if (Y_axis_sign == 0) {
-        return BladeSideType::ALL_BLADES;
-    }
-    // Получаем текущее направление оси весла направленного на правую лопатку в глобальной системе
-    SP_Math::Vector paddleYAxis(0, Y_axis_sign, 0);
-    SP_Math::Vector globalYAxis = paddleQ.rotate(paddleYAxis);
-
-    if (globalYAxis.z() < 0) {
-        return BladeSideType::RIGHT_BLADE;
-    } else {
-        return BladeSideType::LEFT_BLADE;
-    }
 
 }
 
@@ -212,88 +125,77 @@ void SmartKayak::update() {
         return; 
     }*/
    
-    if (!paddle->connected()) {
+    if (!paddle->operating()) {
         motorDriver->stop();
         return; 
 
     }   
+
+    uint32_t timestamp = millis();
 
     int force = 0;
-    int borderLoadForce = 600;
+    static int borderLoadForce = 600;
 
-    loadData loads = paddle->getLoadData();
-    if (LOADCELL_SMOOTHING_FACTOR > 0) {
-        currentLoadCellData.forceR = (currentLoadCellData.forceR * (1 - LOADCELL_SMOOTHING_FACTOR) + loads.forceR * LOADCELL_SMOOTHING_FACTOR);
-        currentLoadCellData.forceL = (currentLoadCellData.forceL * (1 - LOADCELL_SMOOTHING_FACTOR) + loads.forceL * LOADCELL_SMOOTHING_FACTOR);
-        currentLoadCellData.forceR_raw = (currentLoadCellData.forceR_raw * (1 - LOADCELL_SMOOTHING_FACTOR) + loads.forceR_raw * LOADCELL_SMOOTHING_FACTOR);
-        currentLoadCellData.forceL_raw = (currentLoadCellData.forceL_raw * (1 - LOADCELL_SMOOTHING_FACTOR) + loads.forceL_raw * LOADCELL_SMOOTHING_FACTOR);
-        currentLoadCellData.timestamp = loads.timestamp;
-        loads = currentLoadCellData;
-    } 
-
-    OrientationData paddleOrientation = paddle->getOrientationData();
-    if (paddleOrientation.q0 == 0 && paddleOrientation.q1 == 0 && paddleOrientation.q2 == 0 && paddleOrientation.q3 == 0) {
+    if (paddle->getOrientationData().q0 == 0) {
+//        Serial.printf("Paddle orientation is not valid: %f, %f, %f, %f\n", paddleOrientation.q0, paddleOrientation.q1, paddleOrientation.q2, paddleOrientation.q3);
+        return; 
+    }
+    if (kayakOrientationQuat[0] == 0) {
+//        Serial.printf("Kayak orientation is not valid: %f, %f, %f, %f\n", kayakOrientationQuat[0], kayakOrientationQuat[1], kayakOrientationQuat[2], kayakOrientationQuat[3]);
         return; 
     }
 
-    SP_Math::Quaternion currentPaddleQ(paddleOrientation.q0,paddleOrientation.q1,paddleOrientation.q2,paddleOrientation.q3);
-    SP_Math::Quaternion paddleRelativeQuat = getRelativeOrientation(currentPaddleQ,paddle);
-    //Determine which blade is lower
-    BladeSideType bladeSide = getLowerBladeSide(currentPaddleQ, paddle->getSpecs().axisDirectionSign);
-    currentBladeSide = bladeSide;
-
-    if (bladeSide == BladeSideType::ALL_BLADES) {
+    currentBladeSide = predictedPaddle->getBladeSide();
+    if (currentBladeSide == BladeSideType::ALL_BLADES) {
         motorDriver->stop();
         return; 
     }
-
-    // Обновляем калибровку с учетом IMU
-    loadCellCalibrator.updateTare(
-        (bladeSide == BladeSideType::RIGHT_BLADE),
-        loads.forceL,
-        loads.forceR,
-        paddle->getIMUData(),
-        paddle->getBladeAngles(),
-        paddle->getSpecs().axisDirectionSign
-    );
-    
-    // Получаем откалиброванное значение силы с учетом гравитации
-    float bladeForce = loadCellCalibrator.getCalibratedForce(
-        (bladeSide == BladeSideType::RIGHT_BLADE),
-        (bladeSide == BladeSideType::RIGHT_BLADE) ? loads.forceR : loads.forceL,
-        paddle->getIMUData(),
-        paddle->getBladeAngles(),
-        paddle->getSpecs().axisDirectionSign
-    );
     
  
-    SP_Math::Vector paddleNormal( 
-        (bladeSide == BladeSideType::RIGHT_BLADE) ? 
-        paddle->getBladeAngles().rightBladeVector : 
-        paddle->getBladeAngles().leftBladeVector);
-    
+ 
+    float fForce = predictedPaddle->getAxialForce();
+    float predictedForce = 0;
+    float confidence = 0;
 
-    SP_Math::Vector kayakPaddleCorrectedNormal = paddleRelativeQuat.rotate(paddleNormal);
-//        SP_Math::Vector kayakPaddleCorrectedNormal = kayakOrientationQuat.conjugate().rotate(currentPaddleQ.rotate(paddleNormal));
-     
-    float shaftRotationAngle;  // поворот вокруг оси Z каяка
-    float shaftTiltAngle;      // наклон вокруг оси X каяка
-    float bladeRotationAngle;  // поворот вокруг оси Y весла
-    getPaddleAngles(paddleRelativeQuat, shaftRotationAngle, shaftTiltAngle, bladeRotationAngle);
+    if (predictorMode == 1 ) {
 
-//    shaftRotationAngle = 0;
-    int shaftRotationAngleInt = (int)shaftRotationAngle;
-    int shaftTiltAngleInt = (int)shaftTiltAngle;
-    int bladeRotationAngleInt = (int)bladeRotationAngle;
+        predictedForce = predictedPaddle->predictStroke(forceAdapter.goingForward(), DEFAULT_PREDICTION_TIME);
 
-    kayakPaddleCorrectedNormal.normalize();
-    float cosAngle = kayakPaddleCorrectedNormal.x();
+        if (modeSwitch->getMode() != MOTOR_OFF) {
+            // Обучаем предиктор только если мотор работает
 
-    float fForce = bladeForce*cosAngle;
+            float forceToLearn = fForce;
 
-     if ((bladeForce < borderLoadForce) && (bladeForce > -borderLoadForce)) {
+            if (fabs(fForce) < DEFAULT_FORCE_THRESHOLD) {
+                forceToLearn = 0;
+            }
+
+            predictedPaddle->teachStrokePredictor(forceToLearn, forceAdapter.goingForward());
+        }
+    } 
+
+    float bladeForce = predictedPaddle->getForce(currentBladeSide);
+    if ((bladeForce < borderLoadForce) && (bladeForce > -borderLoadForce)) {
         fForce = 0;
-    }   
+    } else {
+        predictedForceUsed = false;
+    }
+    
+    usingPredictedForce = false;
+    
+    if (predictorMode == 1) {
+        if (fForce == 0 && (!predictedForceUsed || (millis() - predictedTimeUsed < 300))) {
+
+            if (fabs(predictedForce) > borderLoadForce && confidence > 0.5) {
+                if (!predictedForceUsed) {
+                    predictedTimeUsed = millis();
+                    predictedForceUsed = true;
+                }
+                fForce = predictedForce;
+                usingPredictedForce = true;
+            }
+        }
+    }
 
     currentForceGramms = (int)fForce;
 
@@ -310,25 +212,7 @@ void SmartKayak::update() {
     if (modeSwitch->getMode() == MOTOR_HIGH_POWER){
         force = (int)(fForce*POWER_HIGH_SCALE);
     }
-    displayData=display->getCurrentDisplayData();
-
-    // Обновляем данные для отображения
-    loads = paddle->getLoadData();
-    displayData.shaftRotationAngle = shaftRotationAngle;
-    displayData.shaftTiltAngle = shaftTiltAngle;
-    displayData.bladeRotationAngle = bladeRotationAngle;
-    displayData.leftForce = loads.forceL;
-    displayData.rightForce = loads.forceR;
-    displayData.leftTare = loadCellCalibrator.getLeftTare();
-    displayData.rightTare = loadCellCalibrator.getRightTare();
-    displayData.isRightBlade = (bladeSide == BladeSideType::RIGHT_BLADE);
-    displayData.leftBladeAngle = paddle->getBladeAngles().leftBladeAngle;
-    displayData.rightBladeAngle = paddle->getBladeAngles().rightBladeAngle;
-    displayData.motorForce = motorDriver->getForce();
     
-    if (display) {
-        display->update(displayData);
-    }
 
 //  check if the mode is off or paddle is not connected
     if (modeSwitch->getMode() == MOTOR_OFF){
@@ -339,13 +223,22 @@ void SmartKayak::update() {
     }
 
 
-    motorDriver->setForce(forceAdapter.GetAdaptedForce(force));    
+    motorDriver->setForce(forceAdapter.GetAdaptedForce(force));   
+    Serial.printf("Heap: %d, time: %d\n", ESP.getFreeHeap(), millis()-timestamp);
 
 }
 
 
 void SmartKayak::setPaddle(SmartPaddle* paddle) {
+    if (predictedPaddle != nullptr) {
+        delete predictedPaddle;
+    }
     this->paddle = paddle;
+    predictedPaddle = new PredictedPaddle(paddle);
+    if (display != nullptr) {
+        display->addPredictedPaddle(predictedPaddle);
+    }
+    predictedPaddle->setKayakSpecs(specs);
 }
 
 void SmartKayak::setMotorDriver(IMotorDriver* motorDriver) {
@@ -359,6 +252,13 @@ void SmartKayak::setModeSwitch(IModeSwitch* modeSwitch) {
 void SmartKayak::setIMU(IIMUSensor* imu, uint32_t frequency) {
     this->imu = imu;
 
+}
+
+void SmartKayak::setDisplay(KayakDisplay* newDisplay) {
+    display = newDisplay;
+    if (predictedPaddle != nullptr) {
+        display->addPredictedPaddle(predictedPaddle);
+    }
 }
 
 void SmartKayak::logCall(ILogInterface* logger, LogMode logMode, int* loadCell, int* externalForce){
@@ -425,8 +325,8 @@ void SmartKayak::logCall(ILogInterface* logger, LogMode logMode, int* loadCell, 
 
             logger->printf("%d,%f,%f,%f,%f,",
             loads.timestamp,
-            loads.forceL, loadCellCalibrator.getLeftTare(),
-            loads.forceR, loadCellCalibrator.getRightTare()
+            loads.forceL, predictedPaddle->getLeftTare(),
+            loads.forceR, predictedPaddle->getRightTare()
             );
             logger->printf("%d,%d,", currentForceGramms, currentBladeSide);
 
@@ -467,7 +367,7 @@ void SmartKayak::startTasks() {
     SmartKayakRTOS::startTasks(this);
 }
 
-SP_Math::Quaternion SmartKayak::getRelativeOrientation(SP_Math::Quaternion& qp, SmartPaddle* paddle)
+/*SP_Math::Quaternion SmartKayak::getRelativeOrientation(SP_Math::Quaternion& qp)
 {
     // 1. Получаем направление оси X каяка в мировой системе координат
     SP_Math::Vector x_k = kayakOrientationQuat.rotate(SP_Math::Vector(1, 0, 0));
@@ -502,6 +402,37 @@ SP_Math::Quaternion SmartKayak::getRelativeOrientation(SP_Math::Quaternion& qp, 
 
     // Нормализация для численной стабильности
     return q_relative.normalize();
+}*/
 
+void SmartKayak::loadSpecs() {
+    Preferences prefs;
+    if (!prefs.begin(prefsName.c_str(), true)) {
+        Serial.println("Failed to open preferences for loading specs");
+        return;
+    }
+    specs.axisDirection = (AxisDirection)prefs.getInt("axisDirection", (int)Y_AXIS_RIGHT);
+    prefs.end();
+    if (predictedPaddle != nullptr) {
+        predictedPaddle->setKayakSpecs(specs);
+    }
+}
 
+void SmartKayak::saveSpecs() {
+    Preferences prefs;
+    if (!prefs.begin(prefsName.c_str(), false)) {
+        Serial.println("Failed to open preferences for saving specs");
+        return;
+    }
+    prefs.putInt("axisDirection", (int)specs.axisDirection);
+    prefs.end();
+}
+
+void SmartKayak::setSpecs(const KayakSpecs& s, bool save) {
+    specs = s;
+    if (save) {
+        saveSpecs();
+    }
+    if (predictedPaddle != nullptr) {
+        predictedPaddle->setKayakSpecs(specs);
+    }
 }

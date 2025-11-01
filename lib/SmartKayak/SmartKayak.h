@@ -6,6 +6,7 @@
 #include "../Core/Interfaces/ILogger.h"
 #include "SP_Quaternion.h"
 #include "ForceAdapter.h"
+#include "PredictedPaddle.h"
 
 #include <Wire.h>
 
@@ -17,63 +18,68 @@
 #define SMARTKAYAK_LOG_FORCE 1
 #define LOADCELL_SMOOTHING_FACTOR 0.5f
 
-class SmartKayak;
-
-struct AutoTareData {
-    double samples;
-    float sum;
-    float average;
-};
 
 
 class SmartKayak{
     friend class SmartKayakRTOS;
     friend  void  dmpDataReady();
 
-    //SP_Math::Vector paddleNullVector;
-    //float paddleShaftAngle;
     SP_Math::Quaternion kayakOrientationQuat;
+
     SmartPaddle* paddle;
+    PredictedPaddle* predictedPaddle;
+
     IMotorDriver* motorDriver;
     IModeSwitch* modeSwitch;
     IIMUSensor* imu;
-    //int nullLoadLeft;
-    //int nullLoadRight;
 
     BladeSideType currentBladeSide;
     int currentForceGramms;
-    loadData currentLoadCellData;
 
-    LoadCellCalibrator loadCellCalibrator;
     ForceAdapter forceAdapter;
     KayakDisplay* display;
-    KayakDisplayData displayData;
     
     TaskHandle_t imuTaskHandle;
     TaskHandle_t magnetometerTaskHandle;
 
+    int8_t predictorMode;  // 0 - не используется, 1 - используется
+
+    uint32_t predictedTimeUsed;
+    bool predictedForceUsed;
+    bool usingPredictedForce;
+
+    KayakSpecs specs;
+    String prefsName;
 
 public:
-    SmartKayak();
+    SmartKayak(String prefs_name);
     void begin();
 
-    void update();
+    void loadSpecs();
+    void saveSpecs();
 
+    void setSpecs(const KayakSpecs& s, bool save = true);
+    KayakSpecs getSpecs() const { return specs; }
+
+    void startTasks();
+    void update();
     void setPaddle(SmartPaddle* paddle);
     void setMotorDriver(IMotorDriver* motorDriver);
     void setModeSwitch(IModeSwitch* modeSwitch);
     void setIMU(IIMUSensor* imu, uint32_t frequency);
+    void setDisplay(KayakDisplay* newDisplay);
+    void enableGridPredictor(){ predictorMode = 1; };
+    void disablePredictor(){ predictorMode = 0; };
+    int8_t getPredictorMode(){ return predictorMode; };
+    void setPredictorMode(int8_t mode){ predictorMode = mode; };
+    bool isUsingPredictedForce(){ return usingPredictedForce; };
 
-    void logCall(ILogInterface* logger, LogMode logMode, int* loadCell=nullptr, int* externalForce=nullptr);
+    void logCall(ILogInterface* logger, LogMode logMode, int* loadCell = nullptr, int* externalForce = nullptr);
 
-    void setDisplay(KayakDisplay* newDisplay) {
-        display = newDisplay;
-    }
 
-    void startTasks();
 
 private:
-    SP_Math::Quaternion getRelativeOrientation(SP_Math::Quaternion& orientation, SmartPaddle* paddle = nullptr);
+//    SP_Math::Quaternion getRelativeOrientation(SP_Math::Quaternion& orientation);
 
 };
 

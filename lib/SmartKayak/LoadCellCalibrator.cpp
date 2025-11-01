@@ -17,9 +17,9 @@ void LoadCellCalibrator::setPaddleParameters(float length, float imuDist, float 
     bladeMomentInertia = momentInertia;
 }
 
-float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
+float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData, const SP_Math::Vector& angularAcceleration,
                                                  const BladeOrientation& bladeOrientation,
-                                                 bool isRightBlade, int8_t yAxisDirection) const {
+                                                 bool isRightBlade) const {
     // Функция рассчитывает инерциальные силы в граммах, действующие на лопасть
     // в направлении нормали к лопасти от ускорений и вращений весла
     //
@@ -34,8 +34,10 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
     
     // ИСХОДНЫЙ КОД:
     float leverArm = isRightBlade ? 
-        (paddleLength/2 - imuDistance - bladeCenter)*yAxisDirection : 
-        (-paddleLength/2 - imuDistance + bladeCenter)*yAxisDirection;
+        (paddleLength/2 - imuDistance - bladeCenter) : 
+        (-paddleLength/2 - imuDistance + bladeCenter);
+
+//    Serial.printf("Length: %f, IMU distance: %f, Blade center: %f, Lever arm: %f , blade weight: %f, blade moment inertia: %f\n", paddleLength, imuDistance, bladeCenter, leverArm, bladeWeight, bladeMomentInertia);
 
     // Получаем нормаль лопасти
     const float* bladeNormal = isRightBlade ? 
@@ -71,35 +73,16 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
     float centrifugalForce = centrifugalForceMagnitude * 0.1f; // малая компонента
     */
 
-    // Тангенциальное ускорение от изменения угловой скорости
-    static float prevAngularVelocity[3] = {0, 0, 0};
-    static uint32_t prevTime = 0;
-    uint32_t currentTime = millis();
-    float dt = (currentTime - prevTime) / 1000.0f;
 
-    float tangentialForce = 0;
-    if (dt > 0) {
-        float angularAcceleration[3] = {
-            (imuData.gx - prevAngularVelocity[0]) / dt,
-            (imuData.gy - prevAngularVelocity[1]) / dt,
-            (imuData.gz - prevAngularVelocity[2]) / dt
-        };
 
-        // Проекция углового ускорения на нормаль лопасти
-        float normalAngularAcceleration = angularAcceleration[0] * bladeNormal[0] + 
-                                        angularAcceleration[1] * bladeNormal[1] + 
-                                        angularAcceleration[2] * bladeNormal[2];
-        
-        // Тангенциальная сила от углового ускорения: F = m * α * r
-        // Но здесь используется момент инерции, поэтому: F = (I * α) / r
-        tangentialForce = -bladeMomentInertia * normalAngularAcceleration / fabs(leverArm);
-
-        prevAngularVelocity[0] = imuData.gx;
-        prevAngularVelocity[1] = imuData.gy;
-        prevAngularVelocity[2] = imuData.gz;
-
-        prevTime = currentTime;
-    }
+    // Проекция углового ускорения на нормаль лопасти
+    float normalAngularAcceleration = angularAcceleration[0] * bladeNormal[0] + 
+                                    angularAcceleration[1] * bladeNormal[1] + 
+                                    angularAcceleration[2] * bladeNormal[2];
+    
+    // Тангенциальная сила от углового ускорения: F = m * α * r
+    // Но здесь используется момент инерции, поэтому: F = (I * α) / r
+    float tangentialForce = -bladeMomentInertia * normalAngularAcceleration / fabs(leverArm);
 
     // Суммарная сила
     float totalForce = linearForce + centrifugalForce + tangentialForce;
@@ -117,12 +100,12 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData,
     
 }
 
-float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
+float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData, const SP_Math::Vector& angularAcceleration,
                                                   const BladeOrientation& bladeOrientation,
-                                                  bool isRightBlade, int8_t yAxisDirection) const {
+                                                  bool isRightBlade) const {
     // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ
     return 0.0f;
-    
+ /*   
     // ИСХОДНЫЙ КОД:
     // Гироскопический момент возникает при пересечении осей вращения
     float angularVelocity[3] = {imuData.gx, imuData.gy, imuData.gz};
@@ -141,17 +124,21 @@ float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData,
         (paddleLength/2 - imuDistance - bladeCenter)*yAxisDirection : 
         (-paddleLength/2 - imuDistance + bladeCenter)*yAxisDirection;
         
-    return gyroscopicMoment / leverArm;
+    return gyroscopicMoment / leverArm;*/
     
 }
 
-void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double rightForce,
-                                  const IMUData& imuData, const BladeOrientation& bladeOrientation, int8_t yAxisDirection) {
+void LoadCellCalibrator::updateTare(bool isRightBlade, const loadData& loadData,
+                                  const IMUData& imuData, const SP_Math::Vector& angularAcceleration, const BladeOrientation& bladeOrientation) {
+
+//    Serial.printf("Update tare. L: %f, R: %f\n", loadData.forceL, loadData.forceR);                
     if (isRightBlade) {
+//        Serial.printf("Left tare\n");
         leftTare.samples++;
-        float compensation = calculateInertialEffects(imuData, bladeOrientation, false, yAxisDirection) +
-                           calculateGyroscopicEffect(imuData, bladeOrientation, false, yAxisDirection);
-        leftTare.sum += (leftForce - compensation);
+        float compensation = calculateInertialEffects(imuData, angularAcceleration, bladeOrientation, false) +
+                           calculateGyroscopicEffect(imuData, angularAcceleration, bladeOrientation, false);
+//        Serial.printf("Left tare compensation: %f\n", compensation);
+        leftTare.sum += (loadData.forceL - compensation);
         
         if (leftTare.samples > SAMPLES_THRESHOLD) {
             double avg = leftTare.sum / leftTare.samples;
@@ -162,9 +149,9 @@ void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double 
     } else {
 //        Serial.printf("Right tare\n");
         rightTare.samples++;
-        float compensation = calculateInertialEffects(imuData, bladeOrientation, true, yAxisDirection) +
-                           calculateGyroscopicEffect(imuData, bladeOrientation, true, yAxisDirection);
-        rightTare.sum += (rightForce - compensation);
+        float compensation = calculateInertialEffects(imuData, angularAcceleration, bladeOrientation, true) +
+                           calculateGyroscopicEffect(imuData, angularAcceleration, bladeOrientation, true);
+        rightTare.sum += (loadData.forceR - compensation);
         
         if (rightTare.samples > SAMPLES_THRESHOLD) {
             double avg = rightTare.sum / rightTare.samples;
@@ -177,10 +164,15 @@ void LoadCellCalibrator::updateTare(bool isRightBlade, double leftForce, double 
 
 double LoadCellCalibrator::getCalibratedForce(bool isRightBlade, double rawForce,
                                             const IMUData& imuData,
-                                            const BladeOrientation& bladeOrientation, int8_t yAxisDirection) const {
-//    float inertialEffects = calculateInertialEffects(imuData, bladeOrientation, isRightBlade, yAxisDirection);
-//    float gyroscopicEffect = calculateGyroscopicEffect(imuData, bladeOrientation, isRightBlade, yAxisDirection);
+                                            const SP_Math::Vector& angularAcceleration,
+                                            const BladeOrientation& bladeOrientation) const {
+    float inertialEffects = calculateInertialEffects(imuData, angularAcceleration, bladeOrientation, isRightBlade);
+    float gyroscopicEffect = calculateGyroscopicEffect(imuData, angularAcceleration, bladeOrientation, isRightBlade);
     double tare = isRightBlade ? rightTare.average : leftTare.average;
     
-    return rawForce - tare;// - inertialEffects - gyroscopicEffect;
+    return rawForce - tare - inertialEffects - gyroscopicEffect;
 } 
+
+double LoadCellCalibrator::getCalibratedForce(bool isRightBlade, double rawForce) const {
+    return rawForce - (isRightBlade ? rightTare.average : leftTare.average);
+}

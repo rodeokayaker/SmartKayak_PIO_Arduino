@@ -12,8 +12,6 @@
 #ifndef CORE_I_IMU_SENSOR_H
 #define CORE_I_IMU_SENSOR_H
 
-#include <Arduino.h>
-#include <Wire.h>
 #include "../Types.h"
 
 /**

@@ -14,9 +14,8 @@ LoadCellSetADS1220::LoadCellSetADS1220(const char* prefsName, PaddleType paddleT
     leftUpdated = false;
     firstRight = true; // by default start with right channel
     firstChanelSelected = true;
+
     
-    // Load saved calibration data
-    readCalibrationData();
 }
 
 LoadCellSetADS1220 *instance = nullptr;
@@ -33,12 +32,23 @@ bool LoadCellSetADS1220::begin(uint8_t sclk_pin, uint8_t miso_pin, uint8_t mosi_
     SPI.begin(sclk_pin, miso_pin, mosi_pin, cs_pin);
 
     pc_ads1220.begin(cs_pin,drdy_pin);
+    pc_ads1220.ads1220_Reset();
+    delay(100);
     pc_ads1220.set_data_rate(getFreqID());
+//    Serial.printf("Data rate %d\n", getFreqID());
     pc_ads1220.set_pga_gain(PGA_GAIN_32);
+//    pc_ads1220.set_VREF(VREF_ANALOG); // 2.048V reference voltage
     pc_ads1220.set_FIR_Filter(FIR_OFF); 
     pc_ads1220.select_mux_channels(MUX_AIN0_AIN1);  //Configure for differential measurement between AIN0 and AIN1
     pc_ads1220.set_conv_mode_continuous();          //Set continuous conversion mode
 //    pc_ads1220.Start_Conv();  //Start continuous conversion mode
+    // Load saved calibration data
+    readCalibrationData();
+    currentData.forceL = 0.0f;
+    currentData.forceR = 0.0f;
+    currentData.forceL_raw = 0;
+    currentData.forceR_raw = 0;
+    currentData.timestamp = 0;
     return true;
 }
 
@@ -86,15 +96,18 @@ void LoadCellSetADS1220::startServices() {
         firstChanelSelected = false;
         pc_ads1220.select_mux_channels(MUX_AIN2_AIN3);
     }
-    firstChanelSelected = true;
-    pc_ads1220.select_mux_channels(MUX_AIN0_AIN1);
+//    firstChanelSelected = true;
+//    pc_ads1220.select_mux_channels(MUX_AIN0_AIN1);
     if (LoadCellSetADS1220::_taskHandle == nullptr) {
-        xTaskCreatePinnedToCore(LoadCellSetADS1220::taskEntry, "loadcell_ads1220_task", 4096, this, 5, &LoadCellSetADS1220::_taskHandle, tskNO_AFFINITY);
+        xTaskCreatePinnedToCore(LoadCellSetADS1220::taskEntry, "loadcell_ads1220_task", 4096, this, 5, &LoadCellSetADS1220::_taskHandle, 1);
     }
     if (drdy_pin >= 0) {
         attachInterrupt(digitalPinToInterrupt(drdy_pin), LoadCellSetADS1220::intISR, FALLING);
     }
     pc_ads1220.Start_Conv();  //Start continuous conversion mode
+
+
+    Serial.printf("Load cell set ADS1220 started %d\n", millis());
 
 }
 
@@ -105,20 +118,28 @@ void LoadCellSetADS1220::stopServices() {
     if (LoadCellSetADS1220::_taskHandle) vTaskDelete(LoadCellSetADS1220::_taskHandle);
     LoadCellSetADS1220::_taskHandle = nullptr;
 }
+static float freq=100.0f;
+static uint32_t lastTime=0;
 
 void LoadCellSetADS1220::taskEntry(void* arg) {
     LoadCellSetADS1220* loadcell = (LoadCellSetADS1220*)arg;
 
     int32_t data;
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
-
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500));
+//        Serial.printf("Read data %d ", millis());
+        freq = freq*0.9f + (1000.0f / (float)(millis() - lastTime))*0.1f;
+        lastTime = millis();    
+//        Serial.printf("freq: %f Hz ", freq);
         data = loadcell->pc_ads1220.Read_Data_Samples();
         bool isLeft = loadcell->firstChanelSelected ^ loadcell->firstRight;
+//        Serial.printf("isLeft: %d, bladeSide: %d, data: %d\n", isLeft, loadcell->bladeSide, data);
 
         if (isLeft) {
             loadcell->currentData.forceL = data*loadcell->calibrationData.scale[1]-loadcell->calibrationData.offset[1];
             loadcell->currentData.forceL_raw = data;
+//            Serial.printf("forceL: %f, forceL_raw: %d\n", loadcell->currentData.forceL, loadcell->currentData.forceL_raw);
+//            Serial.printf ("Scale: %f, Offset: %f\n", loadcell->calibrationData.scale[1], loadcell->calibrationData.offset[1]);
             loadcell->leftUpdated = true;
         } else {
             loadcell->currentData.forceR = data*loadcell->calibrationData.scale[0]-loadcell->calibrationData.offset[0];
@@ -158,6 +179,7 @@ void LoadCellSetADS1220::taskEntry(void* arg) {
 }
 
 void IRAM_ATTR LoadCellSetADS1220::intISR() {
+//    Serial.printf("Interrupt %d\n", millis());
     BaseType_t hpw = pdFALSE;
     if (LoadCellSetADS1220::_taskHandle) vTaskNotifyGiveFromISR(LoadCellSetADS1220::_taskHandle, &hpw);
     if (hpw) portYIELD_FROM_ISR();
@@ -180,9 +202,7 @@ void LoadCellSetADS1220::calibrateBlade(BladeSideType bladeSide, float weight) {
     float sum = 0;
     for (int i = 0; i < 200; i++) {
 
-            loadData data;
-            getData(data);
-            sum += bladeSide == RIGHT_BLADE ? data.forceR_raw : data.forceL_raw;
+            sum += bladeSide == RIGHT_BLADE ? currentData.forceR_raw : currentData.forceL_raw;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -201,12 +221,15 @@ void LoadCellSetADS1220::calibrateBlade(BladeSideType bladeSide, float weight) {
     
     sum = 0;
     for (int i = 0; i < 200; i++) {
-            loadData data;
-            getData(data);
-            sum += bladeSide == RIGHT_BLADE ? data.forceR_raw : data.forceL_raw - tare_raw;
+
+            sum += bladeSide == RIGHT_BLADE ? currentData.forceR_raw - tare_raw : currentData.forceL_raw - tare_raw;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    float scale = weight / ((float)sum / 200);
+    float scale;
+    if (fabs(sum) < 0.001f)
+        scale = 1.0f;
+    else
+        scale = weight / ((float)sum / 200);
     calibrationData.offset[bladeSide == RIGHT_BLADE ? 0 : 1] = tare_raw*scale;
     calibrationData.scale[bladeSide == RIGHT_BLADE ? 0 : 1] = scale;
     
@@ -236,9 +259,8 @@ void LoadCellSetADS1220::tareBlade(BladeSideType bladeSide) {
     for (int j = 0; j < 4; j++) {
     // Collect data for averaging
         for(int i = 0; i < 200; i++) {
-                loadData data;
-                getData(data);
-                sum += bladeSide == RIGHT_BLADE ? data.forceR : data.forceL;
+
+                sum += bladeSide == RIGHT_BLADE ? currentData.forceR : currentData.forceL;
                 count++;
             vTaskDelay(pdMS_TO_TICKS(10));
         }
@@ -264,19 +286,26 @@ void LoadCellSetADS1220::tareBlade(BladeSideType bladeSide) {
 
 void LoadCellSetADS1220::tare(BladeSideType bladeSide) {
     if (bladeSide==ALL_BLADES) {
-        tareBlade(RIGHT_BLADE);
-        tareBlade(LEFT_BLADE);
+        if (this->bladeSide == RIGHT_BLADE || this->bladeSide == ALL_BLADES)
+            tareBlade(RIGHT_BLADE);
+        if (this->bladeSide == LEFT_BLADE || this->bladeSide == ALL_BLADES)
+            tareBlade(LEFT_BLADE);
     } else {
-        tareBlade(bladeSide);
+        if (this->bladeSide == bladeSide || this->bladeSide == ALL_BLADES)
+          tareBlade(bladeSide);
     }
 }
 
 void LoadCellSetADS1220::calibrate(BladeSideType bladeSide, float weight) {
+
     if (bladeSide==ALL_BLADES) {
-        calibrateBlade(RIGHT_BLADE, weight);
-        calibrateBlade(LEFT_BLADE, weight);
+        if (this->bladeSide == RIGHT_BLADE || this->bladeSide == ALL_BLADES)
+            calibrateBlade(RIGHT_BLADE, weight);
+        if (this->bladeSide == LEFT_BLADE || this->bladeSide == ALL_BLADES)
+            calibrateBlade(LEFT_BLADE, weight);
     } else {
-        calibrateBlade(bladeSide, weight);
+        if (this->bladeSide == bladeSide || this->bladeSide == ALL_BLADES)
+            calibrateBlade(bladeSide, weight);
     }
 }
 
@@ -321,8 +350,11 @@ bool LoadCellSetADS1220::readCalibrationData() {
     if(prefs.isKey("calibData")) {
         prefs.getBytes("calibData", &calibrationData, sizeof(loadCellSetCalibrationData));
         prefs.end();
+        Serial.printf("Scale: %f, Offset: %f\n", calibrationData.scale[0], calibrationData.offset[0]);
+        Serial.printf("Scale: %f, Offset: %f\n", calibrationData.scale[1], calibrationData.offset[1]);
         return true;
     }
+    Serial.printf("No calibration data found\n");
     prefs.end();
     return false;
 }

@@ -4,12 +4,11 @@
  */
 #pragma once
 #include "SP_Types.h"
-//#include "InterfaceIMU.h"
 #include "../Core/Interfaces/IIMUSensor.h"
 #include "../Core/Interfaces/ILoadCell.h"
-#include "BLEAddress.h"
 
 class SmartPaddle;
+class BLEAddress;
 
 class SP_EventHandler {
 public:

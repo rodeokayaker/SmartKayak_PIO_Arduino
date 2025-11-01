@@ -8,8 +8,6 @@
 #ifndef CORE_I_LOGGER_H
 #define CORE_I_LOGGER_H
 
-#include <Stream.h>
-#include <Arduino.h>
 #include "../Types.h"
 
 class ILogSwitch {

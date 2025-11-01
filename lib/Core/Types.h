@@ -8,7 +8,16 @@
 #ifndef SMARTKAYAK_CORE_TYPES_H
 #define SMARTKAYAK_CORE_TYPES_H
 
+#ifdef ARDUINO
 #include <Arduino.h>
+#else
+#define String std::string
+#define uint32_t unsigned long
+#define int16_t short
+#define int32_t long
+#define uint16_t unsigned short
+#endif
+
 
 // ============================================================================
 // PADDLE TYPES
@@ -26,12 +35,16 @@ enum BladeSideType {
 };
 
 enum AxisDirection {
-    X_AXIS_RIGHT,
+    X_AXIS_RIGHT,    
     Y_AXIS_RIGHT,
     Z_AXIS_RIGHT,
     X_AXIS_LEFT,
     Y_AXIS_LEFT,
     Z_AXIS_LEFT,
+    X_AXIS_FORWARD,
+    Y_AXIS_FORWARD,
+    X_AXIS_BACKWARD,
+    Y_AXIS_BACKWARD,
 };
 
 // ============================================================================
@@ -196,35 +209,10 @@ struct PaddleStatus {
     int8_t temperature;
 };
 
-// ============================================================================
-// DISPLAY DATA
-// ============================================================================
-
-struct KayakDisplayData {
-    // Angles
-    float shaftRotationAngle;
-    float shaftTiltAngle;
-    float bladeRotationAngle;
-    
-    // Forces
-    float leftForce;
-    float rightForce;
-    float leftTare;
-    float rightTare;
-    
-    // Blade state
-    bool isRightBlade;
-    
-    // Blade angles
-    float leftBladeAngle;
-    float rightBladeAngle;
-    
-    // Motor
-    int motorForce;
-    
-    // Connection
-    bool isPaddleConnected;
+struct KayakSpecs {
+    AxisDirection axisDirection;
 };
+
 
 #endif // SMARTKAYAK_CORE_TYPES_H
 

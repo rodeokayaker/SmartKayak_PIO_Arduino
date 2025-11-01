@@ -1,13 +1,23 @@
 #include "StrokePredictorGrid.h"
+#include "OrientationUtils.h"
 #include <cmath>
 
+#ifdef ARDUINO
+#include "Arduino.h"
+#else
+#define Serial stderr
+#endif
+
 StrokePredictorGrid::StrokePredictorGrid() 
-    : omegaIndex(0), omegaHistoryFilled(false) {
-    // Инициализация истории
-    for (int i = 0; i < 5; i++) {
-        omegaHistory[i] = SP_Math::Vector(0, 0, 0);
-        omegaTimestamps[i] = 0;
-    }
+    : lastLearningCellIdx{0, 0, 0}, 
+      lastLearningCellValue(0),
+      lastLearningCellFrac{0, 0, 0},
+      learningCellTimes(1),
+      lastLearningCellDirection(true) 
+{
+
+    sparseGrid.reserve(1500);
+
 }
 
 StrokePredictorGrid::~StrokePredictorGrid() {
@@ -19,90 +29,81 @@ StrokePredictorGrid::~StrokePredictorGrid() {
 //=============================================================================
 
 void StrokePredictorGrid::learn(
-    const SP_Math::Quaternion& paddleQuat,
-    const SP_Math::Quaternion& kayakQuat,
-    const SP_Math::Vector& angularVelocity,
+    PaddleOrientationCalculator* relativeOrientation,
     float currentForce,
     bool isForward
 ) {
-    // Обновляем историю угловых скоростей
-    updateOmegaHistory(angularVelocity);
-    
-    // Проверяем порог силы для обучения
-    // Если сила меньше порога И ячейка еще не заполнена, не обучаемся
-    if (fabs(currentForce) < config.forceThreshold) {
-        // Получаем относительную ориентацию
-        SP_Math::Quaternion relativeQuat = getRelativeOrientation(paddleQuat, kayakQuat);
-        
-        // Извлекаем углы
-        float shaftRotation, shaftTilt, bladeRotation;
-        getPaddleAngles(relativeQuat, shaftRotation, shaftTilt, bladeRotation);
-        
-        // Вычисляем индексы
-        int idxRot, idxTilt, idxBlade;
-        float fracRot, fracTilt, fracBlade;
-        angleToIndices(shaftRotation, shaftTilt, bladeRotation, 
-                      idxRot, idxTilt, idxBlade,
-                      fracRot, fracTilt, fracBlade);
-        
-        // Проверяем существование хотя бы одной вершины куба
-        uint32_t keys[8];
-        get8NeighborKeys(idxRot, idxTilt, idxBlade, keys);
-        
-        bool hasAnyVertex = false;
-        for (int i = 0; i < 8; i++) {
-            if (sparseGrid.find(keys[i]) != sparseGrid.end()) {
-                hasAnyVertex = true;
-                break;
-            }
-        }
-        
-        // Если нет ни одной вершины - не обучаемся на малых силах
-        if (!hasAnyVertex) {
-            return;
-        }
-    }
-    
-    // Получаем относительную ориентацию
-    SP_Math::Quaternion relativeQuat = getRelativeOrientation(paddleQuat, kayakQuat);
-    
+
     // Извлекаем углы
     float shaftRotation, shaftTilt, bladeRotation;
-    getPaddleAngles(relativeQuat, shaftRotation, shaftTilt, bladeRotation);
-    
-    // Обновляем сетку
-    updateGrid(shaftRotation, shaftTilt, bladeRotation, currentForce, isForward);
+    relativeOrientation->getPaddleAngles(shaftRotation, shaftTilt, bladeRotation);
+
+    // Вычисляем индексы
+    int idxRot, idxTilt, idxBlade;
+    float fracRot, fracTilt, fracBlade;
+    angleToIndices(shaftRotation, shaftTilt, bladeRotation, 
+                    idxRot, idxTilt, idxBlade,
+                    fracRot, fracTilt, fracBlade);
+
+    // Проверяем, если та же ячейка, то просто обновляем обучаемое значение
+
+    if (lastLearningCellIdx[0] == idxRot && lastLearningCellIdx[1] == idxTilt && lastLearningCellIdx[2] == idxBlade && lastLearningCellDirection == isForward) {
+        lastLearningCellValue += currentForce;
+        lastLearningCellFrac[0] += fracRot;
+        lastLearningCellFrac[1] += fracTilt;
+        lastLearningCellFrac[2] += fracBlade;
+        learningCellTimes++;
+        return;
+    }
+
+    // Обучаемся по последней обучаемой ячейке
+
+    lastLearningCellFrac[0] /= learningCellTimes;
+    lastLearningCellFrac[1] /= learningCellTimes;
+    lastLearningCellFrac[2] /= learningCellTimes;
+    lastLearningCellValue /= learningCellTimes;
+
+    if (learningMethod == LearningMethod::METHOD_A) {
+
+        // Метод A: Корректировка по ошибке
+        // Сначала получаем предсказание
+        float predictedForce = interpolateFromGrid(shaftRotation, shaftTilt, bladeRotation, isForward);
+        updateGridMethodA(lastLearningCellIdx[0], lastLearningCellIdx[1], lastLearningCellIdx[2], lastLearningCellFrac[0], lastLearningCellFrac[1], lastLearningCellFrac[2], predictedForce, lastLearningCellValue, isForward);
+    } else {
+        // Метод B: Прямое обновление
+        updateGridMethodB(lastLearningCellIdx[0], lastLearningCellIdx[1], lastLearningCellIdx[2], lastLearningCellFrac[0], lastLearningCellFrac[1], lastLearningCellFrac[2], lastLearningCellValue, isForward);
+    }
+
+    // Обновляем последнюю обучаемую ячейку
+    lastLearningCellIdx[0] = idxRot;
+    lastLearningCellIdx[1] = idxTilt;
+    lastLearningCellIdx[2] = idxBlade;
+    lastLearningCellValue = currentForce;
+    lastLearningCellFrac[0] = fracRot;
+    lastLearningCellFrac[1] = fracTilt;
+    lastLearningCellFrac[2] = fracBlade;
+    learningCellTimes = 1;
 }
 
 float StrokePredictorGrid::predict(
-    const SP_Math::Quaternion& paddleQuat,
-    const SP_Math::Quaternion& kayakQuat,
-    const SP_Math::Vector& angularVelocity,
+    PaddleOrientationCalculator* relativeOrientation,
     float deltaT,
     bool isForward,
-    bool useAcceleration,
     float* confidence
 ) {
-    // Вычисляем угловое ускорение если нужно
-    SP_Math::Vector angularAcceleration(0, 0, 0);
-    if (useAcceleration && omegaHistoryFilled) {
-        angularAcceleration = calculateAngularAcceleration();
-    }
-    
+
     // Экстраполируем ориентацию весла на deltaT вперед
     SP_Math::Quaternion predictedPaddleQuat = extrapolateOrientation(
-        paddleQuat, angularVelocity, angularAcceleration, 
-        deltaT / 1000.0f, useAcceleration
+        relativeOrientation->getPaddleRelativeOrientation(), 
+        relativeOrientation->getAngularVelocity(),
+        relativeOrientation->getAngularAcceleration(), 
+        deltaT / 1000.0f, true
     );
     
-    // Получаем относительную ориентацию предсказанного положения
-    SP_Math::Quaternion predictedRelativeQuat = getRelativeOrientation(
-        predictedPaddleQuat, kayakQuat
-    );
     
     // Извлекаем углы из предсказанного положения
     float shaftRotation, shaftTilt, bladeRotation;
-    getPaddleAngles(predictedRelativeQuat, shaftRotation, shaftTilt, bladeRotation);
+    relativeOrientation->getPaddleAngles(shaftRotation, shaftTilt, bladeRotation);
     
     // Интерполируем значение из сетки
     float outConfidence = 0.0f;
@@ -120,48 +121,6 @@ float StrokePredictorGrid::predict(
 }
 
 //=============================================================================
-// ИСТОРИЯ УГЛОВЫХ СКОРОСТЕЙ
-//=============================================================================
-
-void StrokePredictorGrid::updateOmegaHistory(const SP_Math::Vector& omega) {
-    omegaHistory[omegaIndex] = omega;
-    omegaTimestamps[omegaIndex] = millis();
-    
-    omegaIndex++;
-    if (omegaIndex >= config.omegaHistorySize) {
-        omegaIndex = 0;
-        omegaHistoryFilled = true;
-    }
-}
-
-SP_Math::Vector StrokePredictorGrid::calculateAngularAcceleration() const {
-    if (!omegaHistoryFilled && omegaIndex < 2) {
-        return SP_Math::Vector(0, 0, 0);
-    }
-    
-    // Используем линейную регрессию по последним 5 точкам
-    // alpha = d(omega)/dt
-    
-    int numSamples = omegaHistoryFilled ? config.omegaHistorySize : omegaIndex;
-    if (numSamples < 2) {
-        return SP_Math::Vector(0, 0, 0);
-    }
-    
-    // Простой метод: разница между последним и первым
-    int lastIdx = (omegaIndex - 1 + config.omegaHistorySize) % config.omegaHistorySize;
-    int firstIdx = (omegaIndex) % config.omegaHistorySize;
-    
-    SP_Math::Vector deltaOmega = omegaHistory[lastIdx] - omegaHistory[firstIdx];
-    float deltaTime = (omegaTimestamps[lastIdx] - omegaTimestamps[firstIdx]) / 1000.0f; // в секундах
-    
-    if (deltaTime > 0.001f) {
-        return deltaOmega / deltaTime;
-    }
-    
-    return SP_Math::Vector(0, 0, 0);
-}
-
-//=============================================================================
 // ЭКСТРАПОЛЯЦИЯ ОРИЕНТАЦИИ
 //=============================================================================
 
@@ -173,13 +132,14 @@ SP_Math::Quaternion StrokePredictorGrid::extrapolateOrientation(
     bool useAcceleration
 ) const {
     // Вычисляем угловую скорость в будущем (если используем ускорение)
-    SP_Math::Vector omegaFuture = omega;
+    SP_Math::Vector omegaAverage = omega;
     if (useAcceleration) {
-        omegaFuture = omega + alpha * deltaT;
+        omegaAverage = omega + alpha * deltaT/2;
     }
     
     // Вычисляем угол поворота
-    float angleChange = omegaFuture.length() * deltaT;
+    float omegaAverageLength = omegaAverage.length();
+    float angleChange = omegaAverageLength * deltaT;
     
     // Если угол слишком мал - возвращаем текущий кватернион
     if (angleChange < 1e-6f) {
@@ -187,7 +147,7 @@ SP_Math::Quaternion StrokePredictorGrid::extrapolateOrientation(
     }
     
     // Нормализованная ось вращения
-    SP_Math::Vector axis = omegaFuture / omegaFuture.length();
+    SP_Math::Vector axis = omegaAverage / omegaAverageLength;
     
     // Создаем кватернион поворота через экспоненциальную карту
     SP_Math::Quaternion deltaQ = SP_Math::Quaternion::fromAxisAngle(axis, angleChange);
@@ -201,7 +161,7 @@ SP_Math::Quaternion StrokePredictorGrid::extrapolateOrientation(
 //=============================================================================
 // ИЗВЛЕЧЕНИЕ УГЛОВ
 //=============================================================================
-
+/*
 void StrokePredictorGrid::getPaddleAngles(
     const SP_Math::Quaternion& relativePaddleQ,
     float& shaftRotationAngle,
@@ -214,12 +174,17 @@ void StrokePredictorGrid::getPaddleAngles(
     // Поворачиваем векторы с использованием относительной ориентации
     SP_Math::Vector currentShaftDir = relativePaddleQ.rotate(paddleY);
     SP_Math::Vector currentZinPaddle = relativePaddleQ.conjugate().rotate(globalZ);
+
+    // Вычисляем углы поворота шафта
+    // Проекция оси шафта на плоскость XY каяка
+    SP_Math::Vector shaftProjectionXY(currentShaftDir.x(), currentShaftDir.y(), 0);
+    shaftProjectionXY.normalize();
     
     // Угол поворота шафта вокруг Z (в плоскости XY)
     SP_Math::Vector sideDir(0, 1, 0);
     
-    float cosAngle = sideDir.dot(currentShaftDir);
-    float crossZ = sideDir.x() * currentShaftDir.y() - sideDir.y() * currentShaftDir.x();
+    float cosAngle = sideDir.dot(shaftProjectionXY);
+    float crossZ = sideDir.x() * shaftProjectionXY.y() - sideDir.y() * shaftProjectionXY.x();
     
     shaftRotationAngle = atan2(crossZ, cosAngle) * 57.295779513082320876798154814105f; // RAD_TO_DEG
     
@@ -229,39 +194,8 @@ void StrokePredictorGrid::getPaddleAngles(
     // Угол поворота лопасти вокруг оси шафта
     bladeRotationAngle = atan2(currentZinPaddle.x(), currentZinPaddle.z()) * 57.295779513082320876798154814105f;
 }
+    */
 
-SP_Math::Quaternion StrokePredictorGrid::getRelativeOrientation(
-    const SP_Math::Quaternion& paddleQuat,
-    const SP_Math::Quaternion& kayakQuat
-) const {
-    // Получаем направление оси X каяка в мировой системе координат
-    SP_Math::Vector x_k = kayakQuat.rotate(SP_Math::Vector(1, 0, 0));
-    
-    // Проецируем на горизонтальную плоскость (убираем наклон каяка)
-    float norm_sq = x_k[0] * x_k[0] + x_k[1] * x_k[1];
-    
-    SP_Math::Vector X_new(0, 0, 0);
-    if (norm_sq < 1e-10f) {
-        X_new[0] = 1;
-        X_new[1] = 0;
-        X_new[2] = 0;
-    } else {
-        float inv_norm = 1.0f / std::sqrt(norm_sq);
-        X_new[0] = x_k[0] * inv_norm;
-        X_new[1] = x_k[1] * inv_norm;
-        X_new[2] = 0;
-    }
-    
-    // Строим кватернион поворота от [1,0,0] к X_new
-    float cos_half_theta = std::sqrt(0.5f * (1 + X_new[0]));
-    float sin_half_theta = (X_new[1] >= 0 ? 1 : -1) * std::sqrt(0.5f * (1 - X_new[0]));
-    SP_Math::Quaternion q_new(cos_half_theta, 0, 0, sin_half_theta);
-    
-    // Вычисляем ориентацию весла относительно горизонтального направления каяка
-    SP_Math::Quaternion q_relative = q_new.conjugate() * paddleQuat;
-    
-    return q_relative.normalize();
-}
 
 //=============================================================================
 // РАБОТА С СЕТКОЙ
@@ -270,6 +204,14 @@ SP_Math::Quaternion StrokePredictorGrid::getRelativeOrientation(
 uint32_t StrokePredictorGrid::computeGridKey(int idxRot, int idxTilt, int idxBlade) const {
     // Ключ: (idxRot * 18 + idxTilt) * 36 + idxBlade
     // Диапазон: 0..23327
+    if ((idxRot < 0) || (idxTilt < 0) || (idxBlade < 0)) {
+        Serial.printf("idxRot: %d, idxTilt: %d, idxBlade: %d\n", idxRot, idxTilt, idxBlade);
+        return 0;
+    }
+    if ((idxRot > 35) || (idxTilt > 17) || (idxBlade > 35)) {
+        Serial.printf("idxRot: %d, idxTilt: %d, idxBlade: %d\n", idxRot, idxTilt, idxBlade);
+        return 0;
+    }
     return (uint32_t)((idxRot * 18 + idxTilt) * 36 + idxBlade);
 }
 
@@ -400,7 +342,7 @@ float StrokePredictorGrid::interpolateFromGrid(
     // Проверяем достаточность данных
     if (totalWeight > 0.5f) {
         if (outConfidence != nullptr) {
-            *outConfidence = totalConfidence / totalWeight / 100.0f; // Нормализуем
+            *outConfidence = totalConfidence / totalWeight / 10.0f; // Нормализуем
             if (*outConfidence > 1.0f) *outConfidence = 1.0f;
         }
         return interpolatedValue / totalWeight;
@@ -447,6 +389,9 @@ void StrokePredictorGrid::updateGridMethodA(
     float realForce,
     bool isForward
 ) {
+    // Ограничиваем размер grid для предотвращения нехватки памяти
+    const size_t MAX_GRID_SIZE = 2000;  // Максимум 2000 ячеек (~125KB памяти)
+    
     // Вычисляем ошибку
     float error = realForce - predictedForce;
     
@@ -456,29 +401,54 @@ void StrokePredictorGrid::updateGridMethodA(
     
     // Обновляем все 8 вершин пропорционально их весу
     for (int i = 0; i < 8; i++) {
+
+        // Если сила меньше порога, то не обучаемся на малых силах если ячейка не существует
+        if (fabs(realForce) < config.forceThreshold) {
+            if (sparseGrid.find(keys[i]) == sparseGrid.end()) {
+                continue;
+            }
+        }
+
+        // Проверка переполнения grid перед созданием новой ячейки
+        bool cellExists = (sparseGrid.find(keys[i]) != sparseGrid.end());
+        if (!cellExists && sparseGrid.size() >= MAX_GRID_SIZE) {
+            // Grid переполнен, новую ячейку не создаем
+            continue;
+        }
+
         float weight = getTrilinearWeight(fracRot, fracTilt, fracBlade, i);
         float correction = error * weight * config.alphaEMA;
         
-        // Получаем или создаем ячейку
-        GridCell& cell = sparseGrid[keys[i]];
+        // Получаем или создаем ячейку (теперь безопасно)
+        try {
+            GridCell& cell = sparseGrid[keys[i]];
         
-        if (cell.confidence == 0) {
-            // Первое обновление - устанавливаем значение напрямую
-            if (isForward) {
-                cell.force_forward = realForce;
+            if (cell.confidence == 0) {
+                // Первое обновление - устанавливаем значение напрямую
+                if (isForward) {
+                    cell.force_forward = realForce;
+                } else {
+                    cell.force_backward = realForce;
+                }
             } else {
-                cell.force_backward = realForce;
+                // Применяем коррекцию
+                if (isForward) {
+                    cell.force_forward += correction;
+                } else {
+                    cell.force_backward += correction;
+                }
             }
-        } else {
-            // Применяем коррекцию
-            if (isForward) {
-                cell.force_forward += correction;
-            } else {
-                cell.force_backward += correction;
-            }
+            
+            cell.confidence++;
+            
+        } catch (const std::bad_alloc& e) {
+            // Нехватка памяти при создании ячейки grid
+            Serial.printf("⚠️ Grid memory allocation failed (size:%u)\n", sparseGrid.size());
+            break;  // Прерываем цикл обновления
+        } catch (...) {
+            Serial.println("⚠️ Unknown exception in grid update");
+            break;
         }
-        
-        cell.confidence++;
     }
 }
 
@@ -488,35 +458,63 @@ void StrokePredictorGrid::updateGridMethodB(
     float realForce,
     bool isForward
 ) {
+    // Ограничиваем размер grid для предотвращения нехватки памяти
+    const size_t MAX_GRID_SIZE = 800;  // Максимум 800 ячеек (~50KB памяти)
+    
     // Получаем 8 ключей
     uint32_t keys[8];
     get8NeighborKeys(idxRot, idxTilt, idxBlade, keys);
     
     // Обновляем все 8 вершин взвешенным EMA
     for (int i = 0; i < 8; i++) {
-        float weight = getTrilinearWeight(fracRot, fracTilt, fracBlade, i);
         
-        // Получаем или создаем ячейку
-        GridCell& cell = sparseGrid[keys[i]];
-        
-        if (cell.confidence == 0) {
-            // Первое обновление - устанавливаем значение напрямую
-            if (isForward) {
-                cell.force_forward = realForce;
-            } else {
-                cell.force_backward = realForce;
-            }
-        } else {
-            // Взвешенное EMA
-            float alpha = config.alphaEMA * weight;
-            if (isForward) {
-                cell.force_forward = cell.force_forward * (1.0f - alpha) + realForce * alpha;
-            } else {
-                cell.force_backward = cell.force_backward * (1.0f - alpha) + realForce * alpha;
+        // Если сила меньше порога, то не обучаемся на малых силах если ячейка не существует
+        if (fabs(realForce) < config.forceThreshold) {
+            if (sparseGrid.find(keys[i]) == sparseGrid.end()) {
+                continue;
             }
         }
+
+        // Проверка переполнения grid перед созданием новой ячейки
+        bool cellExists = (sparseGrid.find(keys[i]) != sparseGrid.end());
+        if (!cellExists && sparseGrid.size() >= MAX_GRID_SIZE) {
+            // Grid переполнен, новую ячейку не создаем
+            continue;
+        }
+
+        // Получаем или создаем ячейку (теперь безопасно)
+        try {
+            GridCell& cell = sparseGrid[keys[i]];
         
-        cell.confidence++;
+            float weight = getTrilinearWeight(fracRot, fracTilt, fracBlade, i);
+
+            if (cell.confidence == 0) {
+                // Первое обновление - устанавливаем значение напрямую
+                if (isForward) {
+                    cell.force_forward = realForce;
+                } else {
+                    cell.force_backward = realForce;
+                }
+            } else {
+                // Взвешенное EMA
+                float alpha = config.alphaEMA * weight;
+                if (isForward) {
+                    cell.force_forward = cell.force_forward * (1.0f - alpha) + realForce * alpha;
+                } else {
+                    cell.force_backward = cell.force_backward * (1.0f - alpha) + realForce * alpha;
+                }
+            }
+            
+            cell.confidence++;
+            
+        } catch (const std::bad_alloc& e) {
+            // Нехватка памяти при создании ячейки grid
+            Serial.printf("⚠️ Grid memory allocation failed (size:%u)\n", sparseGrid.size());
+            break;  // Прерываем цикл обновления
+        } catch (...) {
+            Serial.println("⚠️ Unknown exception in grid update");
+            break;
+        }
     }
 }
 

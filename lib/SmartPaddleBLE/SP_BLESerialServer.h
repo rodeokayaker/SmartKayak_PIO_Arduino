@@ -46,7 +46,7 @@ private:
     }
 
 public:
-    SP_BLESerialServer(SmartPaddle* p) : 
+    SP_BLESerialServer(SmartPaddleBLE* p) : 
         SP_BLESerial(p)
          {        }
 

@@ -1,6 +1,6 @@
 #ifndef SMARTPADDLE_BLE_CLIENT_H
 #define SMARTPADDLE_BLE_CLIENT_H
-#include <SmartPaddle.h>
+#include <SmartPaddleBLE.h>
 #include <BLEDevice.h>
 #include <BLEClient.h>
 #include <BLESecurity.h>
@@ -15,7 +15,7 @@ namespace SPClient_Default_Frequencies {
 
 
 // Класс для работы со SmartPaddle на стороне клиента (каяка)
-class SmartPaddleBLEClient : public SmartPaddle {
+class SmartPaddleBLEClient : public SmartPaddleBLE {
     friend class SPBLEClientCallbacks;
     friend class SPBLEClientScanCallbacks;
     friend class SPClientRTOS;
@@ -35,11 +35,15 @@ private:
     
     BLEAddress* trustedDevice;
     BLESecurity* pSecurity;
+    class SPBLEClientCallbacks* clientCallbacks;
 
     bool is_pairing;
     bool do_connect;
     bool do_scan;
     bool do_disconnect;
+
+    uint32_t last_send_specs_time;
+    uint32_t last_send_paddle_orientation_time;
 
     std::string prefsName;
 
@@ -54,6 +58,8 @@ private:
     OverwritingQueue<IMUData> imuQueue;
 
     uint32_t timeDifference;
+    uint32_t lastScanStartTime;
+    bool scanInProgress;
 
     IMUData current_imu_data;
     loadData current_loads_data;
@@ -109,6 +115,8 @@ public:
     uint32_t toLocalMillis(uint32_t timestamp) {return timestamp+timeDifference;}
     void startTasks();
     int8_t getYAxisDirection() {return specs.axisDirectionSign;}
+
+    void setSpecs(const PaddleSpecs& sp, bool save = true) override;
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

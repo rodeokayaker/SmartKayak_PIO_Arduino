@@ -94,10 +94,10 @@ public:
     virtual void onStatus(JsonObject& status) {}
 };*/
 
-class SmartPaddle;
+class SmartPaddleBLE;
 class SP_BLESerial : public Stream {
 protected:
-    SmartPaddle* paddle;
+    SmartPaddleBLE* paddle;
     ByteRingBuffer<SP_SERIAL_BUFFER_SIZE> receiveBuffer;
     SP_MessageProcessor messageProcessor;
     char jsonBuffer[SP_JSON_BUFFER_SIZE];
@@ -124,7 +124,7 @@ protected:
     static void jsonProcessTaskFunction(void* parameter);
 
 public:
-    SP_BLESerial(SmartPaddle* p);
+    SP_BLESerial(SmartPaddleBLE* p);
     virtual ~SP_BLESerial();
 
     void setMessageHandler(SP_MessageHandler* handler);

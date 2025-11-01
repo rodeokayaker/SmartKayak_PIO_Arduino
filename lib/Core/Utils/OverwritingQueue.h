@@ -9,6 +9,9 @@
 #define CORE_OVERWRITING_QUEUE_H
 
 #include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/portable.h"
 
 /**
  * @class OverwritingQueue
@@ -29,11 +32,29 @@ public:
     }
 
     void send(const T& data) {
-        if (uxQueueSpacesAvailable(queue) == 0) {
-            T dummy;
-            xQueueReceive(queue, &dummy, 0);
+        // Проверяем, вызывается ли из контекста прерывания
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        BaseType_t result;
+        
+        if (xPortInIsrContext()) {
+            // Вызов из ISR - используем ISR-safe версии
+            if (uxQueueSpacesAvailable(queue) == 0) {
+                T dummy;
+                xQueueReceiveFromISR(queue, &dummy, &xHigherPriorityTaskWoken);
+            }
+            result = xQueueSendToBackFromISR(queue, &data, &xHigherPriorityTaskWoken);
+            
+            if (xHigherPriorityTaskWoken) {
+                portYIELD_FROM_ISR();
+            }
+        } else {
+            // Обычный контекст задачи
+            if (uxQueueSpacesAvailable(queue) == 0) {
+                T dummy;
+                xQueueReceive(queue, &dummy, 0);
+            }
+            result = xQueueSendToBack(queue, &data, 0);
         }
-        xQueueSendToBack(queue, &data, 0);
     }
 
     bool receive(T& data, TickType_t timeout = portMAX_DELAY) {
