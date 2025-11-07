@@ -93,9 +93,11 @@ class PaddleOrientationCalculator {
         };
 
         void getPaddleAngles(float& shaftRotationAngle, float& shaftTiltAngle, float& bladeRotationAngle);
+        void getPaddleAngles(const SP_Math::Quaternion& paddleQuat, float& shaftRotationAngle, float& shaftTiltAngle, float& bladeRotationAngle);
 
         
         BladeSideType getLowerBladeSide() const;
+        double shaftVectorZ() const;
 
         SP_Math::Quaternion& getPaddleModificationQuat() {
             if (!(calculationState & PO_MODIFICATION_VALID)) updateRelativeOrientation();

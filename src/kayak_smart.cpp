@@ -263,10 +263,14 @@ class LogButton: public ButtonDriver, public ILogSwitch {
             }
             return;
         }
-        logMode = (LogMode)((((int)logMode+1) % nLogModes));
-        SD_Logger->StopLog();
-        logStarted = false;
-        startNewLog();
+//        logMode = (LogMode)((((int)logMode+1) % nLogModes));
+//        SD_Logger->StopLog();
+//        logStarted = false;
+//        startNewLog();
+        if (!paddle.connected()) {
+            paddle.startPairing();
+            return;
+        }
     }
 
     void switchToDebugMode() {
@@ -770,7 +774,7 @@ class PaddleEventHandler: public SP_EventHandler {
         specs.axisDirectionSign = 1;
         specs.imuFrequency = 100;*/
     
-        paddle->setSpecs(specs, true);
+//        paddle->setSpecs(specs, true);
     }
     
 };

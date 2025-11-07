@@ -140,6 +140,8 @@ public:
     bool loadSpecs();
     void startTasks();
 
+    uint8_t status() override {return connected() ? PADDLE_STATUS_CONNECTED : isPairing() ? PADDLE_STATUS_PAIRING : PADDLE_STATUS_DISCONNECTED;}
+
 
 
 

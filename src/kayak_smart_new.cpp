@@ -268,10 +268,15 @@ class LogButton: public ButtonDriver, public ILogSwitch {
             }
             return;
         }
-        logMode = (LogMode)((((int)logMode+1) % nLogModes));
-        SD_Logger->StopLog();
-        logStarted = false;
-        startNewLog();
+        if (!paddle.connected()) {
+            paddle.startPairing();
+            return;
+        }
+//        logMode = (LogMode)((((int)logMode+1) % nLogModes));
+//        SD_Logger->StopLog();
+//        logStarted = false;
+//        startNewLog();
+//        logStarted = true;
     }
 
     void switchToDebugMode() {
@@ -415,10 +420,10 @@ void printMemoryInfo(const char* stage) {
     Serial.printf("\nTask stack info:\n");
     Serial.printf("PROCESS_STACK_SIZE: %d bytes\n", PROCESS_STACK_SIZE);
     Serial.printf("SerialCmd stack: 2048 bytes\n");
-    Serial.printf("Log stack: 2048 bytes\n");
+    Serial.printf("Log stack: 6144 bytes\n");
     Serial.printf("Vizualize stack: 2048 bytes\n");
     Serial.printf("LoadCell stack: 2048 bytes\n");
-    Serial.printf("Total task stacks: %d bytes\n", PROCESS_STACK_SIZE + 2048*4);
+    Serial.printf("Total task stacks: %d bytes\n", PROCESS_STACK_SIZE + 2048*3 + 6144);  // 3 задачи по 2048 + Log 6144
     
     // Расчет статической памяти
     uint32_t staticMemory = ESP.getHeapSize() - ESP.getFreeHeap();
@@ -760,8 +765,8 @@ class PaddleEventHandler: public SP_EventHandler {
     }
 
     void onUpdateBladeAngle(BladeOrientation& bladeOrientation, SmartPaddle* paddle) override {
-/*        PaddleSpecs specs = paddle->getSpecs();
-        specs.imuDistance = - 0.18f;
+        PaddleSpecs specs = paddle->getSpecs();
+ /*       specs.imuDistance = - 0.18f;
         specs.length = 1.65f *2;
         specs.bladeWeight = 0.20f;
         specs.bladeCenter = 0.17f;
@@ -774,6 +779,22 @@ class PaddleEventHandler: public SP_EventHandler {
         specs.axisDirection = Y_AXIS_RIGHT;
         specs.axisDirectionSign = 1;
         specs.imuFrequency = 100;
+
+
+        specs.paddleType = PaddleType::TWO_BLADES;
+        specs.length = 2.2f;
+        specs.imuDistance = 0.00f;
+        specs.bladeWeight = 0.3f;
+        specs.bladeCenter = 0.20f;
+        specs.bladeMomentInertia = 0.01;
+    
+        specs.firmwareVersion = 1.1;
+        specs.paddleModel = "RST-220-KM";
+        specs.hasLeftBlade = true;
+        specs.hasRightBlade = true;
+        specs.imuFrequency = 100;
+    
+        specs.axisDirection = Y_AXIS_LEFT;
     
         paddle->setSpecs(specs, true);*/
     }
@@ -811,7 +832,10 @@ static void IRAM_ATTR loadCellDataReady() {
 
 void setup() {
     Serial.begin(115200);
-    while (!Serial) delay(10);
+    while (!Serial && (millis() < 2000)) 
+    {
+        delay(10);
+    }
     
     // Детальная проверка памяти на каждом этапе
 //    printMemoryInfo("INITIAL");
@@ -829,8 +853,11 @@ void setup() {
     kayakDisplay->setMotorSwitch(&powerButton);
     kayakDisplay->setMotorDriver(&motor);
     kayakDisplay->begin();
+
+    Serial.printf("PSRAM: %d\n", ESP.getPsramSize());
+
    
- //  SDCardReady = SDlog.begin("SD_LOG");
+    SDCardReady = SDlog.begin("SD_LOG");
 
     SD_Logger = &SDlog;
 
@@ -843,7 +870,7 @@ void setup() {
     paddle.setEventHandler(&paddleEventHandler);
     
     paddle.begin("SmartKayak 1.0");
-//    printMemoryInfo("AFTER PADDLE INIT");
+    printMemoryInfo("AFTER PADDLE INIT");
     Serial.println("Paddle initialized");
     
     Serial.println("Starting IMU initialization...");
@@ -861,7 +888,7 @@ void setup() {
     kayak.setModeSwitch(&powerButton);
     kayak.setMotorDriver(&motor);
     kayak.begin();
-    kayak.setPredictorMode(0);
+    kayak.setPredictorMode(1);
     Serial.println("Kayak initialized");
     
     Serial.println("Starting buttons initialization...");
@@ -913,7 +940,7 @@ void setup() {
     result = xTaskCreatePinnedToCore(
         logTask,
         "Log",
-        2048,
+        4096,  // Увеличено с 2048 до 4096 для предотвращения переполнения стека при SD операциях и printf
         NULL,
         1,
         NULL,

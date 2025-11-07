@@ -9,7 +9,7 @@
 #include "esp_private/usb_console.h"  // для CDC событий
 #include "LoadCellSetHX711.h"
 #include "SP_BLESerial.h"
-#include "LogInterface.h"
+//#include "LogInterface.h"
 #include "Peripherals.h"
 
 
@@ -305,6 +305,7 @@ void setup() {
     Wire.end();
     Wire.begin(I2C_SDA, I2C_SCL);
     Wire.setClock(400000);
+    Serial.printf("Wire initialized SDA: %d, SCL: %d\n", I2C_SDA, I2C_SCL);
     
     Serial.println("\nSmart Paddle Initializing...");
     
@@ -324,7 +325,7 @@ void setup() {
     paddleId = generatePaddleID();
     paddle.setPaddleID(paddleId);
     paddle.setEventHandler(&eventHandler);
-    paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
+//    paddle.SetYAxisDirection(Y_AXIS_DIRECTION);
     // Инициализация Весла
     paddle.setIMU(&imuSensor);
 //    paddle.setLoads(&rightCell, &leftCell);

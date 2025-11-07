@@ -8,8 +8,6 @@
 #include "ForceAdapter.h"
 #include "PredictedPaddle.h"
 
-#include <Wire.h>
-
 #include "../Core/Interfaces/IMotor.h"
 #include "../Core/Interfaces/IDisplay.h"
 #include "LoadCellCalibrator.h"
@@ -38,15 +36,13 @@ class SmartKayak{
 
     ForceAdapter forceAdapter;
     KayakDisplay* display;
-    
-    TaskHandle_t imuTaskHandle;
-    TaskHandle_t magnetometerTaskHandle;
 
     int8_t predictorMode;  // 0 - не используется, 1 - используется
 
     uint32_t predictedTimeUsed;
     bool predictedForceUsed;
     bool usingPredictedForce;
+    uint32_t strokeTimeUsed;
 
     KayakSpecs specs;
     String prefsName;

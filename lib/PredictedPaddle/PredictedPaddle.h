@@ -8,7 +8,7 @@
 #include "LoadCellCalibrator.h"
 #define LOADCELL_SMOOTHING_FACTOR 0.5f
 
-#define DEFAULT_PREDICTION_TIME 200.0f
+#define DEFAULT_PREDICTION_TIME 300.0f
 #define DEFAULT_GRID_STEP 10.0f
 #define DEFAULT_ALPHA_EMA 0.2f
 #define DEFAULT_FORCE_THRESHOLD 400.0f
@@ -75,7 +75,7 @@ class PredictedPaddle: public SP_EventHandler {
 
         BladeSideType getBladeSide() {return relativeOrientation->getLowerBladeSide();};
         bool operating() {return paddle->operating();};
-
+        uint8_t status() {return paddle->status();};
         void setKayakSpecs(const KayakSpecs& specs) {
             relativeOrientation->setKayakAxisDirection(specs.axisDirection);
         }

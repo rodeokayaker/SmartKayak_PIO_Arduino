@@ -94,8 +94,8 @@ public:
     bool receiveIMUData(IMUData& data, TickType_t timeout = 0);
     bool receiveOrientationData(OrientationData& data, TickType_t timeout = 0);
     bool isPairing(){
-        //return is_pairing;
-        return true; //FOR TESTING differet paddles
+        return is_pairing;
+        //return true; //FOR TESTING differet paddles
     }
     
     // Методы для работы со сканированием
@@ -117,6 +117,7 @@ public:
     int8_t getYAxisDirection() {return specs.axisDirectionSign;}
 
     void setSpecs(const PaddleSpecs& sp, bool save = true) override;
+    uint8_t status() override {return connected() ? PADDLE_STATUS_CONNECTED : isPairing() ? PADDLE_STATUS_PAIRING : PADDLE_STATUS_DISCONNECTED;}
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

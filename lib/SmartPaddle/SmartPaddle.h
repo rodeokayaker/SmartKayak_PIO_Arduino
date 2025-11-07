@@ -15,6 +15,11 @@
 #include "../Core/Types.h"
 #include "SP_EventHandler.h"
 
+#define PADDLE_STATUS_CONNECTED 1
+#define PADDLE_STATUS_PAIRING 2
+#define PADDLE_STATUS_DISCONNECTED 0
+
+
 
 // Class for smart paddle unified interface
 class SmartPaddle {
@@ -64,6 +69,7 @@ class SmartPaddle {
             return eventHandlerCount;
         }
         virtual bool operating()=0;
+        virtual uint8_t status()=0;
         virtual uint32_t paddleMillis()=0;
  
 };

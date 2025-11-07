@@ -1225,7 +1225,7 @@ bool SmartPaddleBLEServer::loadSpecs(){
     specs.hasLeftBlade = prefs.getBool("hasLeftBlade", false);
     specs.hasRightBlade = prefs.getBool("hasRightBlade", false);
     specs.imuFrequency = prefs.getInt("imuFrequency", 0);
-    specs.axisDirection = (AxisDirection)prefs.getInt("axisDirection", (int)Y_AXIS_RIGHT);  // Загружаем направление оси IMU
+    specs.axisDirection = (AxisDirection)prefs.getInt("axisDirection", (int)Y_AXIS_LEFT);  // Загружаем направление оси IMU
     prefs.end();
     Serial.println("Specs loaded");
     Serial.printf("paddleType: %d\n", specs.paddleType);

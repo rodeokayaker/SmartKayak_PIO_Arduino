@@ -15,6 +15,11 @@ BladeSideType PaddleOrientationCalculator::getLowerBladeSide() const{
     }
 }
 
+double PaddleOrientationCalculator::shaftVectorZ() const{
+    SP_Math::Vector globalShaftVector = paddleOrientationQuat.rotate(paddleShaftVector);
+    return globalShaftVector.z();
+}
+
 void PaddleOrientationCalculator::updateRelativeOrientation() {
 
     // Получаем направление оси X каяка в мировой системе координат
@@ -48,17 +53,13 @@ void PaddleOrientationCalculator::updateRelativeOrientation() {
     calculationState |= PO_ORIENTATION_VALID|PO_MODIFICATION_VALID;
 }
 
-void PaddleOrientationCalculator::getPaddleAngles(float& rotation, float& tilt, float& blade) {
-
-    if (!(calculationState & PO_ANGLES_VALID)) 
-    {
-        if (!(calculationState & PO_ORIENTATION_VALID)) updateRelativeOrientation();
+void PaddleOrientationCalculator::getPaddleAngles(const SP_Math::Quaternion& paddleQuat, float& rotation, float& tilt, float& blade) {
 
         SP_Math::Vector globalZ(0, 0, 1);  // вертикальный вектор
 
         // Поворачиваем векторы с использованием относительной ориентации
-        SP_Math::Vector currentShaftDir = paddleRelativeQuat.rotate(paddleShaftVector);
-        SP_Math::Vector currentZinPaddle = paddleRelativeQuat.conjugate().rotate(globalZ); // Вертикальный вектор в системе весла
+        SP_Math::Vector currentShaftDir = paddleQuat.rotate(paddleShaftVector);
+        SP_Math::Vector currentZinPaddle = paddleQuat.conjugate().rotate(globalZ); // Вертикальный вектор в системе весла
 
         // Вычисляем углы поворота шафта
         // Проекция оси шафта на плоскость XY каяка
@@ -72,21 +73,33 @@ void PaddleOrientationCalculator::getPaddleAngles(float& rotation, float& tilt, 
         float cosAngle = sideDir.dot(shaftProjectionXY);
         float crossZ = sideDir.x() * shaftProjectionXY.y() - sideDir.y() * shaftProjectionXY.x();    
 
-        paddleShaftRotationAngle = atan2(crossZ, cosAngle) * RAD_TO_DEG;
+        rotation = atan2(crossZ, cosAngle) * RAD_TO_DEG;
 
         // Угол наклона шафта относительно плоскости XY
-        paddleShaftTiltAngle = asin(currentShaftDir.z()) * RAD_TO_DEG;
+        tilt = asin(currentShaftDir.z()) * RAD_TO_DEG;
 
         // Угол поворота лопасти вокруг оси шафта
         if (paddleShaftVector.y() != 0) {
-            paddleBladeRotationAngle = atan2(currentZinPaddle.x(),currentZinPaddle.z()) * RAD_TO_DEG;
+            blade = atan2(currentZinPaddle.x(),currentZinPaddle.z()) * RAD_TO_DEG;
         } else {
             if (paddleShaftVector.x() != 0) {
-                paddleBladeRotationAngle = atan2(currentZinPaddle.y(),currentZinPaddle.z()) * RAD_TO_DEG;
+                blade = atan2(currentZinPaddle.y(),currentZinPaddle.z()) * RAD_TO_DEG;
             } else {
-                paddleBladeRotationAngle = atan2(currentZinPaddle.z(),currentZinPaddle.y()) * RAD_TO_DEG;
+                blade = atan2(currentZinPaddle.z(),currentZinPaddle.y()) * RAD_TO_DEG;
             }
         }
+
+
+}
+
+void PaddleOrientationCalculator::getPaddleAngles(float& rotation, float& tilt, float& blade) {
+
+    if (!(calculationState & PO_ANGLES_VALID)) 
+    {
+        if (!(calculationState & PO_ORIENTATION_VALID)) updateRelativeOrientation();
+
+        getPaddleAngles(paddleRelativeQuat, paddleShaftRotationAngle, paddleShaftTiltAngle, paddleBladeRotationAngle);
+
 
         calculationState |= PO_ANGLES_VALID;
     }

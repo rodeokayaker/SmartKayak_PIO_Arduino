@@ -159,7 +159,8 @@ void SmartKayak::update() {
 
     if (predictorMode == 1 ) {
 
-        predictedForce = predictedPaddle->predictStroke(forceAdapter.goingForward(), DEFAULT_PREDICTION_TIME);
+        predictedForce = predictedPaddle->predictStroke(forceAdapter.goingForward(), DEFAULT_PREDICTION_TIME, &confidence);
+//        Serial.printf("Gf: %d, TIME: %f, Predicted force: %f\n", forceAdapter.goingForward(), DEFAULT_PREDICTION_TIME, predictedForce);
 
         if (modeSwitch->getMode() != MOTOR_OFF) {
             // Обучаем предиктор только если мотор работает
@@ -179,14 +180,18 @@ void SmartKayak::update() {
         fForce = 0;
     } else {
         predictedForceUsed = false;
+        strokeTimeUsed = millis();
     }
-    
+
     usingPredictedForce = false;
     
+    
     if (predictorMode == 1) {
-        if (fForce == 0 && (!predictedForceUsed || (millis() - predictedTimeUsed < 300))) {
+        if (fForce == 0 && (!predictedForceUsed || (millis() - predictedTimeUsed < DEFAULT_PREDICTION_TIME+100)) && (millis() - strokeTimeUsed > DEFAULT_PREDICTION_TIME+200)) {
 
-            if (fabs(predictedForce) > borderLoadForce && confidence > 0.5) {
+//            Serial.printf("Predicted force: %f, Confidence: %f\n", predictedForce, confidence);
+
+            if ((fabs(predictedForce) > borderLoadForce )&& (confidence > 0.5)) {
                 if (!predictedForceUsed) {
                     predictedTimeUsed = millis();
                     predictedForceUsed = true;
@@ -195,6 +200,11 @@ void SmartKayak::update() {
                 usingPredictedForce = true;
             }
         }
+    }
+
+    if (usingPredictedForce) {
+        
+//        Serial.printf("Predicted force used: %f, Confidence: %f\n", predictedForce, confidence);
     }
 
     currentForceGramms = (int)fForce;
@@ -224,7 +234,7 @@ void SmartKayak::update() {
 
 
     motorDriver->setForce(forceAdapter.GetAdaptedForce(force));   
-    Serial.printf("Heap: %d, time: %d\n", ESP.getFreeHeap(), millis()-timestamp);
+//    Serial.printf("Heap: %d, time: %d\n", ESP.getFreeHeap(), millis()-timestamp);
 
 }
 

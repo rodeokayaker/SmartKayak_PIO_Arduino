@@ -319,11 +319,11 @@ void GFXKayakDisplay::showStatusLines() {
         gfx->setTextColor(WHITE);
 
         if (predictedPaddle[0]){
-            if ((ppaddleData[0].lastConnected != predictedPaddle[0]->operating()) || firstShow) {
-                ppaddleData[0].lastConnected = predictedPaddle[0]->operating();
+            if ((ppaddleData[0].lastStatus != predictedPaddle[0]->status()) || firstShow) {
+                ppaddleData[0].lastStatus = predictedPaddle[0]->status();
                 gfx->fillRect(0, fontsSize*10, width, fontsSize*10, BLACK);
                 gfx->setCursor(0, fontsSize*10);
-                gfx->printf("Paddle: %s\n", predictedPaddle[0]->operating()?"Connected":"NO");
+                gfx->printf("Paddle: %s\n", ppaddleData[0].lastStatus==PADDLE_STATUS_CONNECTED?"Connected":ppaddleData[0].lastStatus==PADDLE_STATUS_PAIRING?"Pairing":"NO");
             }
         }
         xSemaphoreGive(gfxMutex);
@@ -344,7 +344,7 @@ void GFXKayakDisplay::showModeLines() {
             if (kayak->getPredictorMode()==1) {
                 gfx->fillRect(width/2 - 10*fontsSize, height - fontsSize*10, 20*fontsSize, 20*fontsSize, ORANGE);
                 if (kayak->isUsingPredictedForce()) {
-                    gfx->fillRect(width/2 + 10*fontsSize, height - fontsSize*10, 10*fontsSize, 20*fontsSize, RED);
+                    gfx->fillRect(width/2 , height - fontsSize*10, 10*fontsSize, 20*fontsSize, RED);
                 }
             } else {
                 gfx->fillRect(width/2 - 10*fontsSize, height - fontsSize*10, 20*fontsSize, 20*fontsSize, BLACK);

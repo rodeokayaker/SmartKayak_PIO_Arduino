@@ -25,7 +25,7 @@ namespace SmartPaddleUUID {
 
 class SmartPaddleBLE: public SmartPaddle {
     protected:
-        PaddleStatus status;
+//        PaddleStatus status;
         bool isConnected;                  // Paddle connection status
         SP_BLESerial* serial;
         SP_MessageHandler* messageHandler;
@@ -34,7 +34,7 @@ class SmartPaddleBLE: public SmartPaddle {
 
     public:
         SmartPaddleBLE(): SmartPaddle(),
-        status(),
+//        status(),
         isConnected(false),
         serial(nullptr),
         messageHandler(nullptr)
@@ -46,8 +46,9 @@ class SmartPaddleBLE: public SmartPaddle {
         virtual void startPairing()=0;
         virtual SP_BLESerial* getSerial() {return serial;}
         
-        virtual PaddleStatus getStatus() {return status;}
+//        virtual PaddleStatus getStatus() {return status;}
         virtual bool operating() override {return connected();}
+        virtual uint8_t status() override {return connected() ? 1 : 0;}
 
         virtual ~SmartPaddleBLE();
 };

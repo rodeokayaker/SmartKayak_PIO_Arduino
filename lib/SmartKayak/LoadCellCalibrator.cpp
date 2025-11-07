@@ -44,10 +44,14 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData, const
         bladeOrientation.rightBladeVector : 
         bladeOrientation.leftBladeVector;
 
+//    Serial.printf("%f, %f, %f\n", bladeNormal[0], bladeNormal[1], bladeNormal[2]);
+
     // Проекция ускорения на нормаль лопасти (скалярное произведение)
     float normalAcceleration = imuData.ax * bladeNormal[0] + 
                               imuData.ay * bladeNormal[1] + 
                               imuData.az * bladeNormal[2];
+
+//    Serial.printf("BladeWeight: %f \n", bladeWeight);
     
     // Инерциальная сила направлена противоположно ускорению (F = -ma)
     float linearForce = -bladeWeight * normalAcceleration;
@@ -96,6 +100,8 @@ float LoadCellCalibrator::calculateInertialEffects(const IMUData& imuData, const
     */
 
     // Возвращаем суммарную силу в граммах (проекция уже учтена в расчетах выше)
+
+//    Serial.printf("Total force: %f\n", totalForce);
     return -totalForce * 1000/9.81;
     
 }
@@ -128,11 +134,11 @@ float LoadCellCalibrator::calculateGyroscopicEffect(const IMUData& imuData, cons
     
 }
 
-void LoadCellCalibrator::updateTare(bool isRightBlade, const loadData& loadData,
+void LoadCellCalibrator::updateTare(bool isLeftBlade, const loadData& loadData,
                                   const IMUData& imuData, const SP_Math::Vector& angularAcceleration, const BladeOrientation& bladeOrientation) {
 
 //    Serial.printf("Update tare. L: %f, R: %f\n", loadData.forceL, loadData.forceR);                
-    if (isRightBlade) {
+    if (isLeftBlade) {
 //        Serial.printf("Left tare\n");
         leftTare.samples++;
         float compensation = calculateInertialEffects(imuData, angularAcceleration, bladeOrientation, false) +

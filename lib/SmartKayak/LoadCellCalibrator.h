@@ -45,7 +45,7 @@ public:
     
     void setPaddleParameters(float length, float imuDist, float weight, float center, float momentInertia);
     
-    void updateTare(bool isRightBlade, const loadData& loadData,
+    void updateTare(bool isLeftBlade, const loadData& loadData,
                    const IMUData& imuData, const SP_Math::Vector& angularAcceleration, const BladeOrientation& bladeOrientation);
     
     double getCalibratedForce(bool isRightBlade, double rawForce, 

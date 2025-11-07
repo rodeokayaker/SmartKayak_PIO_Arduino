@@ -44,16 +44,31 @@ void PredictedPaddle::onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {
 
     if (calibrateLoads) {
         BladeSideType bladeSide = relativeOrientation->getLowerBladeSide();
+
+        
         if ((bladeSide == RIGHT_BLADE && !paddle->getSpecs().hasLeftBlade)|| (bladeSide == LEFT_BLADE && !paddle->getSpecs().hasRightBlade)) {
-            return;
+//            Serial.printf("Calibrating SUP!");
+            double shaftVectorZ = relativeOrientation->shaftVectorZ();
+            if (fabs(shaftVectorZ) < 0.4) {
+                loadCellCalibrator->updateTare(
+                    bladeSide == LEFT_BLADE,
+                    loadData,
+                    paddle->getIMUData(),
+                    relativeOrientation->getAngularAcceleration(),
+                    paddle->getBladeAngles()
+                );
+            }
+        } else {
+//            Serial.printf("IMU gx: %f, gy %f, gz %f \n", paddle->getIMUData().ax, paddle->getIMUData().ay, paddle->getIMUData().az);
+            loadCellCalibrator->updateTare(
+                bladeSide != LEFT_BLADE,
+                loadData,
+                paddle->getIMUData(),
+                relativeOrientation->getAngularAcceleration(),
+                paddle->getBladeAngles()
+            );
+
         }
-        loadCellCalibrator->updateTare(
-            bladeSide == RIGHT_BLADE,
-            loadData,
-            paddle->getIMUData(),
-            relativeOrientation->getAngularAcceleration(),
-            paddle->getBladeAngles()
-        );
     }
 }
 

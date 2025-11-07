@@ -62,6 +62,7 @@ void StrokePredictorGrid::learn(
     lastLearningCellFrac[1] /= learningCellTimes;
     lastLearningCellFrac[2] /= learningCellTimes;
     lastLearningCellValue /= learningCellTimes;
+//    Serial.printf("Learning cell: %d, %d, %d, Value: %f, Frac: %f, %f, %f\n", lastLearningCellIdx[0], lastLearningCellIdx[1], lastLearningCellIdx[2], lastLearningCellValue, lastLearningCellFrac[0], lastLearningCellFrac[1], lastLearningCellFrac[2]);
 
     if (learningMethod == LearningMethod::METHOD_A) {
 
@@ -103,7 +104,7 @@ float StrokePredictorGrid::predict(
     
     // Извлекаем углы из предсказанного положения
     float shaftRotation, shaftTilt, bladeRotation;
-    relativeOrientation->getPaddleAngles(shaftRotation, shaftTilt, bladeRotation);
+    relativeOrientation->getPaddleAngles(predictedPaddleQuat, shaftRotation, shaftTilt, bladeRotation);
     
     // Интерполируем значение из сетки
     float outConfidence = 0.0f;
@@ -115,6 +116,10 @@ float StrokePredictorGrid::predict(
     // Возвращаем уверенность если запрошено
     if (confidence != nullptr) {
         *confidence = outConfidence;
+    }
+
+    if (predictedForce > 0) {
+//        Serial.printf("Predicted force: %f, Confidence: %f\n", predictedForce, outConfidence);
     }
     
     return predictedForce;

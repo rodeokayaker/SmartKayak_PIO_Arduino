@@ -262,14 +262,14 @@ void TFTSmallDisplay::showStatusLines() {
         if (firstShow) {
 
             tft.setCursor(0, 10);
-            tft.printf("Paddle: %s\n", ppaddleData[0].lastConnected?"Connected":"Disconnected");
+            tft.printf("Paddle: %s\n", ppaddleData[0].lastStatus==PADDLE_STATUS_CONNECTED?"Connected":ppaddleData[0].lastStatus==PADDLE_STATUS_PAIRING?"Pairing":"Disconnected");
         }
         if (predictedPaddle[0]){
-            if (ppaddleData[0].lastConnected != predictedPaddle[0]->operating()) {
-                ppaddleData[0].lastConnected = predictedPaddle[0]->operating();
+            if (ppaddleData[0].lastStatus != predictedPaddle[0]->status()) {
+                ppaddleData[0].lastStatus = predictedPaddle[0]->status();
                 tft.fillRect(0, 10, 160, 10, TFT_BLACK);
                 tft.setCursor(0, 10);
-                tft.printf("Paddle: %s\n", predictedPaddle[0]->operating()?"Connected":"Disconnected");
+                tft.printf("Paddle: %s\n", predictedPaddle[0]->status()==PADDLE_STATUS_CONNECTED?"Connected":predictedPaddle[0]->status()==PADDLE_STATUS_PAIRING?"Pairing":"Disconnected");
             }
         }
         xSemaphoreGive(tftMutex);

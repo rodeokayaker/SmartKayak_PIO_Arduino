@@ -58,7 +58,7 @@ private:
 
 public:
     // Constructor & Destructor
-    ImuBNO055(const char* name, uint8_t i2cAddr = BNO055_ADDRESS_A, 
+    ImuBNO055(const char* name, uint8_t i2cAddr = BNO055_ADDRESS_B, 
               int32_t sensorID = -1, Stream* stream = &Serial);
     ~ImuBNO055();
 

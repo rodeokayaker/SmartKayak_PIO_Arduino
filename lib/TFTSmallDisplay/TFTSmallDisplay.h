@@ -21,7 +21,7 @@ class TFTSmallDisplay : public KayakDisplay {
         int lastRightTare;
         int lastLeftForce;
         int lastRightForce;
-        bool lastConnected;
+        uint8_t lastStatus;
     } ppaddleData[N_PADDLES];
 
     struct ModeData {
