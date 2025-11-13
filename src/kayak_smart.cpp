@@ -732,7 +732,7 @@ class PaddleEventHandler: public SP_EventHandler {
     public:
     PaddleEventHandler(): imu_freq(100), load_freq(10), last_imu_ts(0), last_load_ts(0) {}
     
-    void onUpdateIMU(IMUData& imuData, SmartPaddle* paddle) override {
+    void onUpdateIMU(const IMUData& imuData, SmartPaddle* paddle) override {
         uint32_t dt = imuData.timestamp - last_imu_ts;
         if (dt > 0) {
             imu_freq = 0.001 * (1000.0/dt) + 0.999 * imu_freq;
@@ -742,7 +742,7 @@ class PaddleEventHandler: public SP_EventHandler {
         last_imu_ts = imuData.timestamp;
 //        Serial.printf("IMU Freq:  %.2f\n",imu_freq);
     }
-    void onUpdateLoad(loadData& ld, SmartPaddle* paddle) override {
+    void onUpdateLoad(const loadData& ld, SmartPaddle* paddle) override {
         last_load_ts = ld.timestamp;
 //        Serial.printf("Load Freq:  %.2f\n",                     load_freq);
 //        Serial.printf("Load: %d, %d\n", ld.forceL, ld.forceR);
@@ -758,7 +758,7 @@ class PaddleEventHandler: public SP_EventHandler {
 
     }
 
-    void onUpdateBladeAngle(BladeOrientation& bladeOrientation, SmartPaddle* paddle) override {
+    void onUpdateBladeAngle(const BladeOrientation& bladeOrientation, SmartPaddle* paddle) override {
 /*        PaddleSpecs specs = paddle->getSpecs();
         specs.imuDistance = - 0.18f;
         specs.length = 1.65f *2;

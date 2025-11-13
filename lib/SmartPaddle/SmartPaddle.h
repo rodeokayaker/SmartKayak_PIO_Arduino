@@ -49,6 +49,8 @@ class SmartPaddle {
         virtual BladeOrientation getBladeAngles() {return bladeOrientation;}
         virtual PaddleSpecs getSpecs() {return specs;}
         virtual void setSpecs(const PaddleSpecs& specs, bool save = true) {this->specs = specs;}
+        virtual bool specsValid() {return specs.paddleID.length() > 0;}
+        virtual bool bladeOrientationValid() {return bladeOrientation.rightBladeAngle != 0 || bladeOrientation.leftBladeAngle != 0;}
         
         virtual ~SmartPaddle() {for (int i = 0; i < eventHandlerCount; i++) {delete eventHandler[i]; eventHandler[i] = nullptr;}}
         
@@ -67,6 +69,16 @@ class SmartPaddle {
             eventHandler[eventHandlerCount-1] = nullptr;
             eventHandlerCount--;
             return eventHandlerCount;
+        }
+        bool removeEventHandler(SP_EventHandler* handler) 
+        {
+            for (int i = 0; i < eventHandlerCount; i++) {
+                if (eventHandler[i] == handler) {
+                    removeEventHandler(i);
+                    return true;
+                }
+            }
+            return false;
         }
         virtual bool operating()=0;
         virtual uint8_t status()=0;

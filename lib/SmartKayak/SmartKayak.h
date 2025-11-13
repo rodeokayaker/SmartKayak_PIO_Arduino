@@ -2,7 +2,6 @@
 #define SMARTKAYAK_H
 
 #include "SmartPaddle.h"
-#include "Peripherals.h"
 #include "../Core/Interfaces/ILogger.h"
 #include "SP_Quaternion.h"
 #include "ForceAdapter.h"
