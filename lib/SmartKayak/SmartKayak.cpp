@@ -124,7 +124,7 @@ void SmartKayak::update() {
         }
         return; 
     }*/
-   
+
     if (!paddle->operating()) {
         motorDriver->stop();
         return; 
@@ -420,7 +420,7 @@ void SmartKayak::loadSpecs() {
         Serial.println("Failed to open preferences for loading specs");
         return;
     }
-    specs.axisDirection = (AxisDirection)prefs.getInt("axisDirection", (int)Y_AXIS_RIGHT);
+    specs.axisDirection = (AxisDirection)prefs.getInt("axisDirection", (int)X_AXIS_FORWARD);
     prefs.end();
     if (predictedPaddle != nullptr) {
         predictedPaddle->setKayakSpecs(specs);

@@ -839,12 +839,12 @@ void SmartPaddleBLEClient::updateBLE() {
     if (serial && connected()) {
         serial->update();
 
-        if (specs.paddleID.length() == 0 && millis() > last_send_specs_time +1000) {
+        if (!specsValid() && millis() > last_send_specs_time +1000) {
             last_send_specs_time = millis();
             serial->sendString(SP_MessageProcessor::createSendSpecsCommand());
         }
 
-        if (bladeOrientation.rightBladeAngle == 0 && bladeOrientation.leftBladeAngle == 0 && millis() > last_send_paddle_orientation_time +1500) {
+        if (!bladeOrientationValid() && millis() > last_send_paddle_orientation_time +1500) {
             last_send_paddle_orientation_time = millis();
             serial->sendString(SP_MessageProcessor::createSendPaddleOrientationCommand());
         }

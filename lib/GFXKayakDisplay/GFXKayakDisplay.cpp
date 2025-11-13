@@ -167,7 +167,7 @@ void GFXKayakDisplay::showOrientationScreen() {
             
 
             
-            if (shaftRotation != ppaddleData[0].lastShaftRotation) {
+            if ((shaftRotation != ppaddleData[0].lastShaftRotation) || firstShow) {
                 // Стираем старое положение весла
                 if (!firstShow) {
                     // Стираем старую линию и точку
@@ -194,8 +194,8 @@ void GFXKayakDisplay::showOrientationScreen() {
             }
             
             // Обновляем отображение углов только если изменились
-            if ((int)bladeRotation != (int)ppaddleData[0].lastBladeRotation || 
-                (int)shaftTilt != (int)ppaddleData[0].lastShaftTilt) {
+            if (((int)bladeRotation != (int)ppaddleData[0].lastBladeRotation || 
+                (int)shaftTilt != (int)ppaddleData[0].lastShaftTilt) || firstShow) {
                 
                 // Стираем старые значения
                 gfx->fillRect(0, workTop + workHeight - 10*fontsSize, width, fontsSize*10, BLACK);
@@ -210,7 +210,7 @@ void GFXKayakDisplay::showOrientationScreen() {
             }
             
 
-            if ((ppaddleData[0].lastIsRightBlade != isRightBlade)) {
+            if ((ppaddleData[0].lastIsRightBlade != isRightBlade) || firstShow) {
                 gfx->fillRect(centerX - 15*fontsSize, workTop + workHeight - 20*fontsSize, 6*5*fontsSize, 10*fontsSize, BLACK);
                 String direction = (isRightBlade) ? "RIGHT" : "LEFT";
                 gfx->setTextColor(YELLOW);
@@ -225,7 +225,7 @@ void GFXKayakDisplay::showOrientationScreen() {
                     // Отображение значений loadcell
 
             // Левый loadcell
-            if (ppaddleData[0].lastLeftTare != predictedPaddle[0]->getLeftTare()||ppaddleData[0].lastLeftForce != predictedPaddle[0]->getLeftForce()) {
+            if ((ppaddleData[0].lastLeftTare != predictedPaddle[0]->getLeftTare()||ppaddleData[0].lastLeftForce != predictedPaddle[0]->getLeftForce()) || firstShow) {
                 gfx->setTextSize(1);
                 gfx->fillRect(5, workTop + 10, 60, 20, BLACK);  
                 gfx->setCursor(5, workTop + 10);
@@ -234,12 +234,12 @@ void GFXKayakDisplay::showOrientationScreen() {
                 gfx->printf("%d\n", (int)predictedPaddle[0]->getLoadData().forceL);
                 gfx->setTextSize(fontsSize);
             }
-            if (ppaddleData[0].lastLeftForce != predictedPaddle[0]->getLeftForce()) {
+            if ((ppaddleData[0].lastLeftForce != predictedPaddle[0]->getLeftForce()) || firstShow) {
                 gfx->fillRect(5*fontsSize, workTop + workHeight - 30*fontsSize, 8*6*fontsSize, 10*fontsSize, BLACK);  
                 gfx->setCursor(5*fontsSize, workTop + workHeight - 30*fontsSize);
                 gfx->printf("%d\n", (int)predictedPaddle[0]->getLeftForce());
             }
-            if (ppaddleData[0].lastRightTare != predictedPaddle[0]->getRightTare()||ppaddleData[0].lastRightForce != predictedPaddle[0]->getRightForce()) {
+            if ((ppaddleData[0].lastRightTare != predictedPaddle[0]->getRightTare()||ppaddleData[0].lastRightForce != predictedPaddle[0]->getRightForce()) || firstShow) {
                 gfx->setTextSize(1);
                 gfx->fillRect(width-5-6*10, workTop + 10, 60, 20, BLACK);  
                 gfx->setCursor(width-5-6*10, workTop + 10);
@@ -248,7 +248,7 @@ void GFXKayakDisplay::showOrientationScreen() {
                 gfx->printf("%d\n", (int)predictedPaddle[0]->getLoadData().forceR);
                 gfx->setTextSize(fontsSize);
             }
-            if (ppaddleData[0].lastRightForce != predictedPaddle[0]->getRightForce()) {
+            if ((ppaddleData[0].lastRightForce != predictedPaddle[0]->getRightForce()) || firstShow) {
                 gfx->fillRect(width-8*fontsSize*6-5*fontsSize, workTop + workHeight - 30*fontsSize, 8*fontsSize*6+5*fontsSize, 10*fontsSize, BLACK);  
                 gfx->setCursor(width-8*fontsSize*6-5*fontsSize, workTop + workHeight - 30*fontsSize);
                 gfx->printf("%8d\n", (int)predictedPaddle[0]->getRightForce());
@@ -288,17 +288,19 @@ void GFXKayakDisplay::showStatusLines() {
         if (width > 200) {
             fontsSize = 2;
         }
+        gfx->setTextSize(fontsSize);
+        gfx->setTextColor(WHITE);
         if (firstShow){
             gfx->fillRect(0, 0, width, fontsSize*10*2, BLACK);
 
+            gfx->setCursor(0, 0);
+            gfx->printf("Motor:");
         }
-        gfx->setTextColor(WHITE);
-        gfx->setTextSize(fontsSize);
         if (motorDriver->getForce() != motorData.signal) {
 
             gfx->fillRect(6*7*fontsSize, 0, 6*4*fontsSize, fontsSize*10, BLACK);
-            gfx->setCursor(0, 0);
-            gfx->printf("Motor: %4d",motorDriver?motorDriver->getForce():0);
+            gfx->setCursor(6*7*fontsSize, 0);
+            gfx->printf("%4d",motorDriver?motorDriver->getForce():0);
             motorData.signal = motorDriver->getForce();
         }
         gfx->fillRect(width - 8*fontsSize*6, 0, 8*fontsSize*6, fontsSize*10, BLACK);
@@ -353,7 +355,10 @@ void GFXKayakDisplay::showModeLines() {
 
         gfx->setCursor(0, height - fontsSize*10);
         gfx->setTextColor(WHITE);
-        gfx->printf("Mode: ");
+        if (firstShow) {
+            gfx->printf("Mode: ");
+        }
+        gfx->setCursor(6*6*fontsSize, height - fontsSize*10);
         switch (motorSwitch?motorSwitch->getMode():MOTOR_OFF) {
             case MOTOR_OFF:
                 gfx->fillRect(5*6*fontsSize, height - fontsSize*12, 5*6*fontsSize, 12*fontsSize, BLACK);

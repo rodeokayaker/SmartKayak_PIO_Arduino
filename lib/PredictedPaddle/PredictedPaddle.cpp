@@ -2,7 +2,7 @@
 #include "LoadCellCalibrator.h"
 #include "StrokePredictorGrid.h"
 #include "PaddleOrientationCalculator.h"
-#include "SP_CoordinateTransform.h"
+//#include "SP_CoordinateTransform.h"
 
 PredictedPaddle::PredictedPaddle(SmartPaddle* sp) :  paddle(sp) {
     currentLoadCellData.forceR = 0;
@@ -16,7 +16,12 @@ PredictedPaddle::PredictedPaddle(SmartPaddle* sp) :  paddle(sp) {
     relativeOrientation = new PaddleOrientationCalculator(sp);
     sp->setEventHandler(this);
     calibrateLoads = false;
-    loadCellCalibrator->setPaddleParameters(sp->getSpecs().length, sp->getSpecs().imuDistance, sp->getSpecs().bladeWeight, sp->getSpecs().bladeCenter, sp->getSpecs().bladeMomentInertia);
+    if (sp->specsValid()) {
+        onUpdateSpecs(sp->getSpecs(), sp);
+    }
+    if (sp->bladeOrientationValid()) {
+        onUpdateBladeAngle(sp->getBladeAngles(), sp);
+    }
 
     strokePredictor->config.gridStep = DEFAULT_GRID_STEP;
     strokePredictor->config.alphaEMA = DEFAULT_ALPHA_EMA;
@@ -28,12 +33,15 @@ PredictedPaddle::PredictedPaddle(SmartPaddle* sp) :  paddle(sp) {
 
 PredictedPaddle::~PredictedPaddle() {
 
+    if (paddle) {
+        paddle->removeEventHandler(this);
+    }
     delete loadCellCalibrator;
     delete strokePredictor;
     delete relativeOrientation;
 }
 
-void PredictedPaddle::onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {
+void PredictedPaddle::onUpdateLoad(const loadData& loadData, SmartPaddle* paddle) {
 
 
     currentLoadCellData.forceR = (currentLoadCellData.forceR * (LOADCELL_SMOOTHING_FACTOR) + loadData.forceR * (1-LOADCELL_SMOOTHING_FACTOR));
@@ -41,6 +49,7 @@ void PredictedPaddle::onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {
     currentLoadCellData.forceR_raw = loadData.forceR_raw ;
     currentLoadCellData.forceL_raw = loadData.forceL_raw ;
     currentLoadCellData.timestamp = loadData.timestamp;
+
 
     if (calibrateLoads) {
         BladeSideType bladeSide = relativeOrientation->getLowerBladeSide();
@@ -59,7 +68,6 @@ void PredictedPaddle::onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {
                 );
             }
         } else {
-//            Serial.printf("IMU gx: %f, gy %f, gz %f \n", paddle->getIMUData().ax, paddle->getIMUData().ay, paddle->getIMUData().az);
             loadCellCalibrator->updateTare(
                 bladeSide != LEFT_BLADE,
                 loadData,
@@ -72,35 +80,37 @@ void PredictedPaddle::onUpdateLoad(loadData& loadData, SmartPaddle* paddle) {
     }
 }
 
-void PredictedPaddle::onUpdateOrientation(OrientationData& orientationData, SmartPaddle* paddle) {
+void PredictedPaddle::onUpdateOrientation(const OrientationData& orientationData, SmartPaddle* paddle) {
             
         
     // Преобразование кватерниона ориентации в стандартную систему координат
-    SP_CoordinateTransform::transformOrientationData(orientationData, paddle->getSpecs().axisDirection);
+//    SP_CoordinateTransform::transformOrientationData(orientationData, paddle->getSpecs().axisDirection);
     relativeOrientation->updatePaddleOrientation(orientationData);
 }
 
-void PredictedPaddle::onUpdateIMU(IMUData& imuData, SmartPaddle* paddle) {
+void PredictedPaddle::onUpdateIMU(const IMUData& imuData, SmartPaddle* paddle) {
     // Преобразование координат IMU в стандартную систему (Y вдоль шафта)
     // независимо от реальной ориентации датчика
-    SP_CoordinateTransform::transformIMUData(imuData, paddle->getSpecs().axisDirection);
+//    SP_CoordinateTransform::transformIMUData(imuData, paddle->getSpecs().axisDirection);
     relativeOrientation->updatePaddleIMU(imuData);
 
 }
 
-void PredictedPaddle::onUpdateBladeAngle(BladeOrientation& bladeOrientation, SmartPaddle* paddle)
+void PredictedPaddle::onUpdateBladeAngle(const BladeOrientation& bladeOrientation, SmartPaddle* paddle)
 {
+    Serial.printf("PredictedPaddle::onUpdateBladeAngle: %f, %f, %f, %f,%f,%f\n", bladeOrientation.leftBladeVector[0], bladeOrientation.leftBladeVector[1], bladeOrientation.leftBladeVector[2], bladeOrientation.rightBladeVector[0], bladeOrientation.rightBladeVector[1], bladeOrientation.rightBladeVector[2]);
     leftBladeVector = SP_Math::Vector(bladeOrientation.leftBladeVector[0], bladeOrientation.leftBladeVector[1], bladeOrientation.leftBladeVector[2]);
     rightBladeVector = SP_Math::Vector(bladeOrientation.rightBladeVector[0], bladeOrientation.rightBladeVector[1], bladeOrientation.rightBladeVector[2]);
     // Преобразование векторов нормали лопастей в стандартную систему координат
-    SP_CoordinateTransform::transformBladeOrientation(rightBladeVector, leftBladeVector, paddle->getSpecs().axisDirection);
+//    SP_CoordinateTransform::transformBladeOrientation(rightBladeVector, leftBladeVector, paddle->getSpecs().axisDirection);
     rightBladeVector.normalize();
     leftBladeVector.normalize();
     calibrateLoads = true;
 
 }
 
-void PredictedPaddle::onUpdateSpecs(PaddleSpecs& specs, SmartPaddle* paddle) {
+void PredictedPaddle::onUpdateSpecs(const PaddleSpecs& specs, SmartPaddle* paddle) {
+    Serial.printf("PredictedPaddle::onUpdateSpecs: %d\n", specs.axisDirection);
     relativeOrientation->setPaddleAxisDirection(specs.axisDirection);
     loadCellCalibrator->setPaddleParameters(specs.length, specs.imuDistance, specs.bladeWeight, specs.bladeCenter, specs.bladeMomentInertia);
 }

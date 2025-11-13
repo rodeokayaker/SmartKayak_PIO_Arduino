@@ -7,6 +7,9 @@
 
 #define IDLE_TIME 200  // время на остановку мотора при переключении направления
 #define STOP_TIME 500  // время линейного плавного затухания
+#define STOP_SIGNAL 1500  // сигнал остановки мотора
+#define FULL_FORWARD_SIGNAL 2000  // сигнал полного вперед
+#define FULL_REVERSE_SIGNAL 1000  // сигнал полного назад
 
 class ChinaMotor: public IMotorDriver {
 
@@ -20,9 +23,6 @@ class ChinaMotor: public IMotorDriver {
     uint32_t force_change_time;
 
 
-    const int STOP_SIGNAL=1500;
-    const int FULL_FORWARD_SIGNAL=2000;
-    const int FULL_REVERSE_SIGNAL=1000;
 
     // Константы модели из ИТОГОВАЯ_МОДЕЛЬ.md
     const float BREAKPOINT_1=1601.8f;  // Граница мертвой и рабочей зоны

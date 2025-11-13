@@ -40,11 +40,11 @@ class PredictedPaddle: public SP_EventHandler {
         void updateKayakOrientation(const OrientationData& kayakOrientation);
         void updateKayakIMU(const IMUData& kayakIMU);
 
-        void onUpdateLoad(loadData& loadData, SmartPaddle* paddle) override;
-        void onUpdateOrientation(OrientationData& orientationData, SmartPaddle* paddle) override;
-        void onUpdateIMU(IMUData& imuData, SmartPaddle* paddle) override;
-        void onUpdateBladeAngle(BladeOrientation& bladeOrientation, SmartPaddle* paddle) override;
-        void onUpdateSpecs(PaddleSpecs& specs, SmartPaddle* paddle) override;
+        void onUpdateLoad(const loadData& loadData, SmartPaddle* paddle) override;
+        void onUpdateOrientation(const OrientationData& orientationData, SmartPaddle* paddle) override;
+        void onUpdateIMU(const IMUData& imuData, SmartPaddle* paddle) override;
+        void onUpdateBladeAngle(const BladeOrientation& bladeOrientation, SmartPaddle* paddle) override;
+        void onUpdateSpecs(const PaddleSpecs& specs, SmartPaddle* paddle) override;
         void onDisconnect(SmartPaddle* paddle) override;
 
         void getRelativeAngles(float& shaftRotation, float& shaftTilt, float& bladeRotation, bool& isRightBlade)
