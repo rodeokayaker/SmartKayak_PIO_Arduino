@@ -775,6 +775,32 @@ class PaddleEventHandler: public SP_EventHandler {
         specs.imuFrequency = 100;*/
     
 //        paddle->setSpecs(specs, true);
+        Serial.printf("\"rightBladeAngle\": %f\n", bladeOrientation.rightBladeAngle);
+        Serial.printf("\"leftBladeAngle\": %f\n", bladeOrientation.leftBladeAngle);
+        Serial.printf("\"rightBladeVectorX\": %f\n", bladeOrientation.rightBladeVector[0]);
+        Serial.printf("\"rightBladeVectorY\": %f\n", bladeOrientation.rightBladeVector[1]);
+        Serial.printf("\"rightBladeVectorZ\": %f\n", bladeOrientation.rightBladeVector[2]);
+        Serial.printf("\"leftBladeVectorX\": %f\n", bladeOrientation.leftBladeVector[0]);
+        Serial.printf("\"leftBladeVectorY\": %f\n", bladeOrientation.leftBladeVector[1]);
+        Serial.printf("\"leftBladeVectorZ\": %f\n", bladeOrientation.leftBladeVector[2]);
+
+    }
+
+    void onUpdateSpecs(PaddleSpecs& specs, SmartPaddle* paddle) override {
+        Serial.printf("\"paddleID\": \"%s\"\n", specs.paddleID.c_str());
+        Serial.printf("\"paddleType\": %d\n", specs.paddleType);
+        Serial.printf("\"paddleModel\": \"%s\"\n", specs.paddleModel.c_str());
+        Serial.printf("\"length\": %f\n", specs.length);
+        Serial.printf("\"imuDistance\": %f\n", specs.imuDistance);
+        Serial.printf("\"imuFrequency\": %d\n", specs.imuFrequency);
+        Serial.printf("\"hasLeftBlade\": %d\n", specs.hasLeftBlade);
+        Serial.printf("\"hasRightBlade\": %d\n", specs.hasRightBlade);
+        Serial.printf("\"firmwareVersion\": %d\n", specs.firmwareVersion);
+        Serial.printf("\"axisDirection\": %d\n", specs.axisDirection);
+        Serial.printf("\"bWei\": %f\n", specs.bladeWeight);
+        Serial.printf("\"bCen\": %f\n", specs.bladeCenter);
+        Serial.printf("\"bMIn\": %f\n", specs.bladeMomentInertia);
+
     }
     
 };

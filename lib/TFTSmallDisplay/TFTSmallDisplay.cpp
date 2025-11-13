@@ -335,7 +335,7 @@ void TFTSmallDisplay::showModeLines() {
 }
 
 void TFTSmallDisplay::startTasks() {
-    xTaskCreate(updateTFTTask, "TFT Task", 2048, this, 5, &updateTFTTaskHandle);
+    xTaskCreate(updateTFTTask, "TFT Task", 4096, this, 5, &updateTFTTaskHandle);
 }
 
 void TFTSmallDisplay::setDebugData(int force, int load, bool scn) {
