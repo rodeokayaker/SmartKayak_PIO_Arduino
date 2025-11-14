@@ -61,6 +61,9 @@ private:
     uint32_t lastScanStartTime;
     bool scanInProgress;
 
+    bool specs_valid;
+    bool bladeOrientation_valid;
+
     IMUData current_imu_data;
     loadData current_loads_data;
     OrientationData current_orientation_data;
@@ -118,6 +121,9 @@ public:
 
     void setSpecs(const PaddleSpecs& sp, bool save = true) override;
     uint8_t status() override {return connected() ? PADDLE_STATUS_CONNECTED : isPairing() ? PADDLE_STATUS_PAIRING : PADDLE_STATUS_DISCONNECTED;}
+    virtual bool specsValid() {return specs_valid;}
+    virtual bool bladeOrientationValid() {return bladeOrientation_valid;}
+
 };
 
 #endif // SMARTPADDLE_BLE_CLIENT_H

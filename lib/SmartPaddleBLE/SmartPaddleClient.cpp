@@ -74,6 +74,9 @@ void SmartPaddleBLEClient::setSpecs(const PaddleSpecs& sp, bool save) {
     if (save) {
         getSerial()->sendString(SP_MessageProcessor::createSpecsMessage(specs));
     }
+    specs_valid=true;
+    for (int i = 0; i < eventHandlerCount; i++) 
+        eventHandler[i]->onUpdateSpecs(specs, this);
 }
 
 
@@ -108,7 +111,8 @@ private:
                 paddle->specs.imuDistance = value.get<float>(SP_Protocol::DataTypes::Specs::IMU_DISTANCE, 0.0f);
                 paddle->specs.axisDirection = (AxisDirection)value.get<int>(SP_Protocol::DataTypes::Specs::AXIS_DIRECTION, (int)Y_AXIS_LEFT);
                 paddle->specs.axisDirectionSign = paddle->specs.axisDirection==Y_AXIS_LEFT || paddle->specs.axisDirection==Z_AXIS_LEFT || paddle->specs.axisDirection==X_AXIS_LEFT ? -1 : 1;
-                
+                paddle->specs_valid=true;
+
                 Serial.println("Paddle specs:");
                 Serial.printf("  Paddle ID: %s\n", paddle->specs.paddleID.c_str());
                 Serial.printf("  Firmware version: %d\n", paddle->specs.firmwareVersion);
@@ -148,13 +152,11 @@ private:
                     SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_VECTOR_Y, 0.0f);
                 paddle->bladeOrientation.leftBladeVector[2] = value.get<float>(
                     SP_Protocol::DataTypes::BladeOrientation::LEFT_BLADE_VECTOR_Z, 0.0f);
-                
+                paddle->bladeOrientation_valid=true;
                 
                 Serial.println("Blade orientation:");
                 Serial.printf("  Right blade angle: %.1f°\n", paddle->bladeOrientation.rightBladeAngle);
                 Serial.printf("  Left blade angle: %.1f°\n", paddle->bladeOrientation.leftBladeAngle);
-                
-//                SetPaddleSpecs(paddle);
 
                 for (int i = 0; i < paddle->eventHandlerCount; i++) 
                     paddle->eventHandler[i]->onUpdateBladeAngle(paddle->bladeOrientation, paddle);
@@ -184,8 +186,6 @@ private:
                 Serial.printf("  Soft iron (diag): %.6f, %.6f, %.6f\n", softIron[0], softIron[1], softIron[2]);
                 Serial.printf("  Soft iron (off): %.6f, %.6f, %.6f\n", softIron[3], softIron[4], softIron[5]);
                 
-//                SetPaddleSpecs(paddle);
-                // SetPaddleCalibration(paddle);
             });
     }
 
@@ -406,7 +406,9 @@ SmartPaddleBLEClient::SmartPaddleBLEClient(const char* prefs_Name)
       imuNotifyCallback(nullptr),
       orientationNotifyCallback(nullptr),
       forceNotifyCallback(nullptr),
-      bladeNotifyCallback(nullptr)
+      bladeNotifyCallback(nullptr),
+      specs_valid(false),
+      bladeOrientation_valid(false)
 
  {
     serial=new SP_BLESerialClient(this);
@@ -784,9 +786,12 @@ bool SmartPaddleBLEClient::connect() {
     isConnected = true;
     is_pairing=false;
     Serial.println("Connected successfully");
+    specs_valid=false;
+    bladeOrientation_valid=false;
     for (int i = 0; i < eventHandlerCount; i++) 
         eventHandler[i]->onConnect(this);
     Serial.printf("Connected to %s\n", trustedDevice->toString().c_str());
+
     return true;
 }
 

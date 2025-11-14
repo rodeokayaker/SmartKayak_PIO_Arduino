@@ -795,8 +795,23 @@ class PaddleEventHandler: public SP_EventHandler {
         specs.imuFrequency = 100;
     
         specs.axisDirection = Y_AXIS_LEFT;
+
+        specs.paddleType = PaddleType::TWO_BLADES;
+        specs.length = 2.07f;
+        specs.imuDistance = -0.20f;
+        specs.bladeWeight = 0.25f;
+        specs.bladeCenter = 0.18f;
+        specs.bladeMomentInertia = 0.01;
+
+        specs.firmwareVersion = 10;
+        specs.paddleModel = "AKSU-200-AB";
+        specs.hasLeftBlade = true;
+        specs.hasRightBlade = true;
+        specs.imuFrequency = 100;
+        specs.axisDirection = Y_AXIS_LEFT;
+        specs.axisDirectionSign = -1;
     
-        paddle->setSpecs(specs, true);*/
+        paddle->setSpecs(specs, true);/**/
     }
     
 };
@@ -989,6 +1004,7 @@ void setup() {
     paddle.startTasks();
     kayak.startTasks();
     gfxKayakDisplay.startTasks();
+    digitalWrite(38,LOW);
     
 //    printMemoryInfo("AFTER ALL INITIALIZATION");
 

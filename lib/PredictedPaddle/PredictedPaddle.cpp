@@ -98,7 +98,7 @@ void PredictedPaddle::onUpdateIMU(const IMUData& imuData, SmartPaddle* paddle) {
 
 void PredictedPaddle::onUpdateBladeAngle(const BladeOrientation& bladeOrientation, SmartPaddle* paddle)
 {
-    Serial.printf("PredictedPaddle::onUpdateBladeAngle: %f, %f, %f, %f,%f,%f\n", bladeOrientation.leftBladeVector[0], bladeOrientation.leftBladeVector[1], bladeOrientation.leftBladeVector[2], bladeOrientation.rightBladeVector[0], bladeOrientation.rightBladeVector[1], bladeOrientation.rightBladeVector[2]);
+//    Serial.printf("PredictedPaddle::onUpdateBladeAngle: %f, %f, %f, %f,%f,%f\n", bladeOrientation.leftBladeVector[0], bladeOrientation.leftBladeVector[1], bladeOrientation.leftBladeVector[2], bladeOrientation.rightBladeVector[0], bladeOrientation.rightBladeVector[1], bladeOrientation.rightBladeVector[2]);
     leftBladeVector = SP_Math::Vector(bladeOrientation.leftBladeVector[0], bladeOrientation.leftBladeVector[1], bladeOrientation.leftBladeVector[2]);
     rightBladeVector = SP_Math::Vector(bladeOrientation.rightBladeVector[0], bladeOrientation.rightBladeVector[1], bladeOrientation.rightBladeVector[2]);
     // Преобразование векторов нормали лопастей в стандартную систему координат
@@ -110,7 +110,7 @@ void PredictedPaddle::onUpdateBladeAngle(const BladeOrientation& bladeOrientatio
 }
 
 void PredictedPaddle::onUpdateSpecs(const PaddleSpecs& specs, SmartPaddle* paddle) {
-    Serial.printf("PredictedPaddle::onUpdateSpecs: %d\n", specs.axisDirection);
+//    Serial.printf("PredictedPaddle::onUpdateSpecs: %d\n", specs.axisDirection);
     relativeOrientation->setPaddleAxisDirection(specs.axisDirection);
     loadCellCalibrator->setPaddleParameters(specs.length, specs.imuDistance, specs.bladeWeight, specs.bladeCenter, specs.bladeMomentInertia);
 }

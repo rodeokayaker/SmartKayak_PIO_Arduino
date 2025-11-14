@@ -17,25 +17,12 @@ bool AmperikaCRLog::begin(const char* pref_name) {
    // Настройка пинов
     pinMode(cs_pin, OUTPUT);
     digitalWrite(cs_pin, HIGH); // Отключаем карту по умолчанию
- //   Serial.println("SD Card initialization started");
-//    SPISettings spiSettings(10000000, MSBFIRST, SPI_MODE0); // 10MHz, стандартный режим
-//    SPIClass* vspi = new SPIClass(3);
-    Serial.printf("SPI initialization %d, %d, %d, %d \n", sck_pin, miso_pin, mosi_pin, cs_pin);
 
-//    spi2.begin(sck_pin, miso_pin, mosi_pin, cs_pin);
+    Serial.printf("SPI initialization %d, %d, %d, %d \n", sck_pin, miso_pin, mosi_pin, cs_pin);
     SPI.begin(sck_pin, miso_pin, mosi_pin, cs_pin);
-//    spi2.setFrequency(200000); // Уменьшаем частоту SPI до 200 кГц
-//    Serial.println("SPI initialization finished");
+
     delay(100);
-    
-//    SPI.beginTransaction(spiSettings);    
-//    Serial.println("SPI transaction started");
-//    delay(100);
-    // Инициализация SD карты (явно задаём шину и низкую частоту)
-//    Serial.println("Проверка напряжения...");
-//    Serial.printf("Напряжение на CS: %d\n", digitalRead(cs_pin));
-//    Serial.printf("SD.begin(%d)\n", cs_pin);
-//    if (!SD.begin(cs_pin, spi2, 10000000, "/sd", 5, false)) {
+
     if (!SD.begin(cs_pin)) {
         Serial.println("SD Card initialization failed!");
         return false;
