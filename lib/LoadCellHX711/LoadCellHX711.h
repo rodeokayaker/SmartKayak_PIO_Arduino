@@ -14,7 +14,7 @@
 #ifndef LoadCellHX711_h
 #define LoadCellHX711_h
 
-#include "SmartPaddle.h"
+#include "../Core/Interfaces/ILoadCell.h"
 #include <HX711.h>
 
 #define HX711_DEFAULT_FREQUENCY 10

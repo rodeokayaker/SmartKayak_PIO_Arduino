@@ -10,21 +10,19 @@ AmperikaCRLog::AmperikaCRLog(uint8_t cs_pin, uint8_t sck_pin, uint8_t miso_pin, 
 {
 }
 
+//SPIClass spi2(HSPI);
+
 bool AmperikaCRLog::begin(const char* pref_name) {
 
    // Настройка пинов
     pinMode(cs_pin, OUTPUT);
     digitalWrite(cs_pin, HIGH); // Отключаем карту по умолчанию
-    Serial.println("SD Card initialization started");
-    SPISettings spiSettings(10000000, MSBFIRST, SPI_MODE0); // 10MHz, стандартный режим
-    SPI.begin(sck_pin, miso_pin, mosi_pin);
-    Serial.println("SPI initialization finished");
+
+    Serial.printf("SPI initialization %d, %d, %d, %d \n", sck_pin, miso_pin, mosi_pin, cs_pin);
+    SPI.begin(sck_pin, miso_pin, mosi_pin, cs_pin);
+
     delay(100);
-    
-//    SPI.beginTransaction(spiSettings);
-//    Serial.println("SPI transaction started");
-//    delay(100);
-    // Инициализация SD карты
+
     if (!SD.begin(cs_pin)) {
         Serial.println("SD Card initialization failed!");
         return false;
@@ -172,7 +170,10 @@ void AmperikaCRLog::createDir(const char* dir){
 }
 
 void AmperikaCRLog::newFile(const char* suffix){
-    setFilename((dir_name+"/"+String(millis())+"_"+String(suffix)+".csv").c_str());
+    // Используем фиксированный буфер вместо String конкатенации для экономии стека
+    char filename_buf[128];
+    snprintf(filename_buf, sizeof(filename_buf), "%s/%lu_%s.csv", dir_name.c_str(), millis(), suffix);
+    setFilename(filename_buf);
 }
 
 bool AmperikaCRLog::StartLog(const char* logName){

@@ -41,6 +41,9 @@ namespace SP_Math
     }
     Vector Vector::normalize() const {
         float len = length();
+        if(len < 1e-6f) {  // Защита от деления на очень маленькое число
+            return Vector(1, 0, 0);  // Возвращаем единичный вектор по X
+        }
         return Vector(v[0] / len, v[1] / len, v[2] / len);
     }
     Vector Vector::rotate(const Vector& axis, float angle) const {
@@ -80,5 +83,7 @@ namespace SP_Math
     Vector operator*(float scalar, const Vector& vector) {
         return Vector(scalar*vector[0], scalar*vector[1], scalar*vector[2]);
     }
+    
+
 
 }

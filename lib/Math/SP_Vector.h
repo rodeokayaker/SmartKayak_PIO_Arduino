@@ -43,6 +43,11 @@ namespace SP_Math
         inline const float& b() const {return v[1];};
         inline const float& c() const {return v[2];};
         Vector hadamard(const Vector& other) const;
+        
+        inline const float* data() const {return v;};  
+        inline float* data() {return v;};        
+        inline operator float*() {return v;};
+        inline operator const float*() const {return v;};   
     };
 
     SP_Math::Vector operator*(float scalar, const SP_Math::Vector& vector);
