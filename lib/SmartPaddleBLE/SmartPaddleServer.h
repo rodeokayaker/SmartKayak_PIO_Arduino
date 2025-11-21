@@ -49,14 +49,20 @@ private:
     uint32_t time_to_send_specs;
     bool send_paddle_orientation;
     uint32_t time_to_send_paddle_orientation;
+    
+    // Battery level tracking
+    uint8_t lastBatteryLevel;
+    uint32_t lastBatteryUpdate;
+    static const uint32_t BATTERY_UPDATE_INTERVAL_MS = 60000; // 60 секунд
+    static const uint8_t BATTERY_CHANGE_THRESHOLD = 5; // 5%
 
 //BLE POINTERS
     BLEServer* pServer;
     BLECharacteristic *forceCharacteristic;
     BLECharacteristic *imuCharacteristic;
     BLECharacteristic *orientationCharacteristic;
+    BLECharacteristic *batteryLevelCharacteristic;
     BLEAdvertising *pAdvertising;
-    BLEAddress* trustedDevice;
     BLESecurity* pSecurity;
 
 //BLE STATUS
@@ -77,10 +83,6 @@ private:
     uint16_t bleSendFrequency;           
     uint16_t bleReceiveFrequency;
     uint16_t loadCellFrequency;
-
-    
-    void setTrustedDevice(BLEAddress* address);
-    void loadTrustedDevice();
 
     void printBondedDevices();
     void removeAllBondedDevices();
@@ -134,13 +136,15 @@ public:
 
     void SetAxisDirection(signed char direction, bool save = true);
 
-    void clearTrustedDevice();
     void setSpecs(const PaddleSpecs& sp, bool save = true) override {specs=sp; if (save) saveSpecs();}
     void saveSpecs();
     bool loadSpecs();
     void startTasks();
 
     uint8_t status() override {return connected() ? PADDLE_STATUS_CONNECTED : isPairing() ? PADDLE_STATUS_PAIRING : PADDLE_STATUS_DISCONNECTED;}
+    
+    // Метод для получения уровня заряда батареи
+    uint8_t getBatteryLevel();
 
 
 

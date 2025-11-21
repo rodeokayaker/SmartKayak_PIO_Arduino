@@ -539,7 +539,6 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
       imuQueue(SENSOR_QUEUE_SIZE),
       loadsensorQueue(SENSOR_QUEUE_SIZE),
       bladeQueue(SENSOR_QUEUE_SIZE),
-      trustedDevice(nullptr),
       send_specs(false),
       is_pairing(false),
       imu(nullptr),
@@ -555,7 +554,10 @@ SmartPaddleBLEServer::SmartPaddleBLEServer(const char* prefs_Name)
       time_to_connect(0),
       sendData(false),
       lastLoadData({0,0,0,0,0}),
-      logStream(&Serial)
+      logStream(&Serial),
+      batteryLevelCharacteristic(nullptr),
+      lastBatteryLevel(100),
+      lastBatteryUpdate(0)
 {
     //BLE Serial initialization
     serial=new SP_BLESerialServer(this);
@@ -598,30 +600,32 @@ class SPBLEServerCallbacks: public BLEServerCallbacks {
     
     public:
     void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
-//        Serial.println("On Connect");
         BLEAddress clientAddress(param->connect.remote_bda);
         server->conn_id=param->connect.conn_id;
         
         if (server->connected()){
-            Serial.printf("Already connected to %s\n", server->trustedDevice->toString().c_str());
+            Serial.println("Already connected, rejecting new connection");
+            pServer->disconnect(param->connect.conn_id);
             return;
         }
 
-        if (!server->trustedDevice || server->isPairing()) {
-            // Если нет сохраненного доверенного устройства, сохраняем первое подключившееся
-            Serial.println("No trusted device, allowing new connection");
-            server->setTrustedDevice(&clientAddress);
+        // Проверяем, есть ли устройство в списке bonded
+        bool isBonded = server->isBonded(clientAddress);
+        
+        if (server->isPairing()) {
+            // В режиме пэринга разрешаем подключение любому устройству
+            Serial.printf("Pairing mode: allowing connection from %s\n", clientAddress.toString().c_str());
             server->conn_id=param->connect.conn_id;
             server->connect();
         } 
-        else if (server->trustedDevice->equals(clientAddress)) {
-            // Если адрес совпадает с сохраненным доверенным устройством
-            Serial.printf("Trusted device connected: %s\n", clientAddress.toString().c_str());
+        else if (isBonded) {
+            // Устройство в списке bonded - разрешаем подключение
+            Serial.printf("Bonded device connected: %s\n", clientAddress.toString().c_str());
             server->conn_id=param->connect.conn_id;
             server->connect();
         } 
         else {
-            // Если адрес не совпадает с доверенным устройством
+            // Устройство не в списке bonded и не режим пэринга - отклоняем
             Serial.printf("Untrusted device rejected: %s\n", clientAddress.toString().c_str());
             pServer->disconnect(param->connect.conn_id);
         }
@@ -677,16 +681,26 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
     ESP_ERROR_CHECK(ret);
     Serial.println("NVS ready for SmartPaddle");
 */
-    // Load trusted device and blade orientation from EEPROM
-    Serial.println("Loading trusted device...");
-    loadTrustedDevice();
-    
     // Load blade orientation from EEPROM
     Serial.println("Loading blade orientation...");
     loadBladeOrientation();
     
     Serial.println("Loading specs...");
     loadSpecs();
+    
+    // Проверяем наличие bonded устройств
+    int bondedCount = esp_ble_get_bond_device_num();
+    Serial.printf("Bonded devices count: %d\n", bondedCount);
+    
+    // Если нет bonded устройств, автоматически включаем режим пэринга
+    if (bondedCount == 0) {
+        Serial.println("No bonded devices found, starting pairing mode automatically");
+        is_pairing = true;
+    } else {
+        is_pairing = false;
+        printBondedDevices();
+    }
+    
     // Initialize BLE с дополнительными проверками
     Serial.println("Device name: " + String(deviceName));
     
@@ -739,6 +753,21 @@ void SmartPaddleBLEServer::begin(const char* deviceName) {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     pService->start();
+
+    // Создаем стандартную Battery Service (UUID 0x180F)
+    BLEService *pBatteryService = pServer->createService(BLEUUID((uint16_t)0x180F));
+    batteryLevelCharacteristic = pBatteryService->createCharacteristic(
+        BLEUUID((uint16_t)0x2A19),  // Battery Level Characteristic UUID
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    batteryLevelCharacteristic->addDescriptor(new BLE2902());
+    
+    // Устанавливаем начальное значение уровня заряда
+    uint8_t batteryLevel = getBatteryLevel();
+    batteryLevelCharacteristic->setValue(&batteryLevel, 1);
+    
+    pBatteryService->start();
+    Serial.println("✓ Battery Service created");
 
     // Start BLE serial communication
     serial->begin();
@@ -815,6 +844,14 @@ bool SmartPaddleBLEServer::connect() {
     isConnected = true;
     sendData=false;
 
+    // Отправляем уровень заряда сразу после подключения
+    if (batteryLevelCharacteristic) {
+        uint8_t level = getBatteryLevel();
+        batteryLevelCharacteristic->setValue(&level, 1);
+        batteryLevelCharacteristic->notify();
+        Serial.printf("Battery level sent on connect: %d%%\n", level);
+    }
+
     BLEDevice::stopAdvertising();
 
     xTimerStart(connectTimer, 0);
@@ -838,52 +875,6 @@ void SmartPaddleBLEServer::disconnect() {
     }
 }
 
-void SmartPaddleBLEServer::setTrustedDevice(BLEAddress* address) {
-
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), false);
-    prefs.putString("trustedDevStr", address->toString().c_str());
-    prefs.putBytes("trustedDevice", address->getNative(), sizeof(esp_bd_addr_t));
-    prefs.end();
-    
-    if (trustedDevice) {
-        delete trustedDevice;
-    }
-    trustedDevice = new BLEAddress(*address);
-}
-
-void SmartPaddleBLEServer::loadTrustedDevice() {
-    if (trustedDevice) {
-        delete trustedDevice;
-        trustedDevice = nullptr;
-    }
-
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), true);
-    if (prefs.isKey("trustedDevice")) {
-        Serial.println("Loading trusted device");
-        esp_bd_addr_t address;
-        prefs.getBytes("trustedDevice", &address, sizeof(esp_bd_addr_t));
-        trustedDevice = new BLEAddress(address);
-        Serial.printf("Trusted device: %s\n", trustedDevice->toString().c_str());
-    } else {
-        Serial.println("No trusted device found in EEPROM");
-    }
-    prefs.end();
-}
-
-void SmartPaddleBLEServer::clearTrustedDevice() {
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), false);
-    prefs.remove("trustedDevice");
-    prefs.remove("trustedDevStr");
-    prefs.end();
-    
-    if (trustedDevice) {
-        delete trustedDevice;
-        trustedDevice = nullptr;
-    }
-}
 
 void SmartPaddleBLEServer::printBondedDevices() {
     try {
@@ -959,12 +950,17 @@ bool SmartPaddleBLEServer::isBonded(BLEAddress address) {
 }
 
 void SmartPaddleBLEServer::startPairing(){
+    Serial.println("Starting pairing mode");
+    
     if (connected()){
         disconnect();
     } else {
         BLEDevice::stopAdvertising();
     }
+    
+    // Удаляем все bonded устройства перед началом пэринга
     removeAllBondedDevices();
+    
     vTaskDelay(pdMS_TO_TICKS(500));  // неблокирующая задержка
     is_pairing = true;
     startAdvertising(BLEDevice::getAdvertising());
@@ -1011,6 +1007,30 @@ void SmartPaddleBLEServer::updateBLE(){
                 send_paddle_orientation = false;
             }
         }
+        
+        // Обновление уровня заряда батареи
+        if (batteryLevelCharacteristic) {
+            uint32_t now = millis();
+            uint8_t currentLevel = getBatteryLevel();
+            bool shouldUpdate = false;
+            
+            // Обновляем при изменении на порог
+            if (abs((int)currentLevel - (int)lastBatteryLevel) >= BATTERY_CHANGE_THRESHOLD) {
+                shouldUpdate = true;
+            }
+            
+            // Или если прошло достаточно времени
+            if (now - lastBatteryUpdate >= BATTERY_UPDATE_INTERVAL_MS) {
+                shouldUpdate = true;
+            }
+            
+            if (shouldUpdate) {
+                batteryLevelCharacteristic->setValue(&currentLevel, 1);
+                batteryLevelCharacteristic->notify();
+                lastBatteryLevel = currentLevel;
+                lastBatteryUpdate = now;
+            }
+        }
     }
     if (connected()&&serial) serial->update();
 
@@ -1028,6 +1048,32 @@ void SmartPaddleBLEServer::sendSpecs(){
     }
 }
     */
+
+/**
+ * @brief Получает уровень заряда батареи в процентах (0-100)
+ * @return uint8_t Уровень заряда от 0 до 100
+ */
+uint8_t SmartPaddleBLEServer::getBatteryLevel() {
+    // Для ESP32 можно использовать встроенные функции
+    // Если батарея подключена через ADC, используйте analogRead()
+    // Здесь используется упрощенный метод для ESP32
+    
+    #ifdef ESP32
+        // ESP32 может читать напряжение батареи через ADC
+        // Если батарея подключена к GPIO35 (ADC1_CH7) или другому ADC пину
+        // Для примера используем фиксированное значение или читаем из статуса
+        
+        // Если есть доступ к статусу с уровнем заряда, используем его
+        // Иначе возвращаем примерное значение на основе напряжения
+        // Для литий-ионной батареи: 4.2V = 100%, 3.0V = 0%
+        
+        // Временная реализация - можно заменить на реальное чтение ADC
+        // или использовать данные из PaddleStatus если они доступны
+        return 100; // По умолчанию 100%, замените на реальное чтение
+    #else
+        return 100; // Для других платформ
+    #endif
+}
 
 void SmartPaddleBLEServer::shutdown() {
     logStream->println("Shutdown Paddle");

@@ -4,7 +4,6 @@
 #include <SP_BLESerialClient.h>
 #include <SP_BLESerial.h>
 #include <SP_CommandParams.h>
-//#include <SP_CoordinateTransform.h>
 #include "BLEHealthMonitor.h"
 
 #define BLE_STACK_SIZE 4096
@@ -388,7 +387,6 @@ class SPClientRTOS{
 
 SmartPaddleBLEClient::SmartPaddleBLEClient(const char* prefs_Name)
     : SmartPaddleBLE(),
-      trustedDevice(nullptr),
       pClient(nullptr),
       clientCallbacks(nullptr),
       do_scan(false),
@@ -403,10 +401,13 @@ SmartPaddleBLEClient::SmartPaddleBLEClient(const char* prefs_Name)
       timeDifference(UINT32_MAX),
       lastScanStartTime(0),
       scanInProgress(false),
+      deviceToConnect(nullptr),
       imuNotifyCallback(nullptr),
       orientationNotifyCallback(nullptr),
       forceNotifyCallback(nullptr),
       bladeNotifyCallback(nullptr),
+      batteryLevelNotifyCallback(nullptr),
+      batteryLevelChar(nullptr),
       specs_valid(false),
       bladeOrientation_valid(false)
 
@@ -451,7 +452,12 @@ void SmartPaddleBLEClient::disconnect() {
     specs.paddleID = "";
     bladeOrientation.rightBladeAngle = 0;
     bladeOrientation.leftBladeAngle = 0;
-
+    
+    // Очищаем адрес устройства
+    if (deviceToConnect) {
+        delete deviceToConnect;
+        deviceToConnect = nullptr;
+    }
 }
 
 
@@ -491,6 +497,15 @@ void SmartPaddleBLEClient::imuCallback(BLERemoteCharacteristic* pChar, uint8_t* 
 
 }   
 
+void SmartPaddleBLEClient::batteryLevelCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
+    if (length > 0) {
+        uint8_t level = pData[0];
+        Serial.printf("Battery level updated: %d%%\n", level);
+        // Здесь можно добавить дополнительную обработку уровня заряда
+        // Например, сохранение в переменную или вызов обработчика событий
+    }
+}
+
 void SmartPaddleBLEClient::orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
     OrientationData data;
     if(length == sizeof(OrientationData)) {
@@ -518,51 +533,72 @@ bool SmartPaddleBLEClient::receiveIMUData(IMUData& data, TickType_t timeout) {
 
 bool SmartPaddleBLEClient::receiveOrientationData(OrientationData& data, TickType_t timeout) {
     return orientationQueue.receive(data, timeout);
-}      
-
-void SmartPaddleBLEClient::loadTrustedDevice() {
-    if (trustedDevice) {
-        delete trustedDevice;
-    }
-    trustedDevice = nullptr;
-    
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), true);
-    if (prefs.isKey("trustedDevice")) {
-        esp_bd_addr_t address;
-        prefs.getBytes("trustedDevice", &address, sizeof(esp_bd_addr_t));
-        trustedDevice = new BLEAddress(address);
-        Serial.printf("Loaded trusted device: %s\n", trustedDevice->toString().c_str());
-    }
-    prefs.end();
 }
 
-void SmartPaddleBLEClient::saveTrustedDevice(BLEAddress* address) {
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), false);
-    prefs.putBytes("trustedDevice", address->getNative(), sizeof(esp_bd_addr_t));
-    prefs.putString("trustedDevStr", address->toString().c_str());
-    prefs.end();
-    
-    if (trustedDevice) {
-        delete trustedDevice;
+// Методы для работы с BLE bonding
+void SmartPaddleBLEClient::printBondedDevices() {
+    try {
+        int deviceCount = esp_ble_get_bond_device_num();
+        Serial.printf("Bonded devices count: %d\n", deviceCount);
+        
+        if (deviceCount > 0) {
+            esp_ble_bond_dev_t* deviceList = (esp_ble_bond_dev_t*)malloc(sizeof(esp_ble_bond_dev_t) * deviceCount);
+            if (deviceList && esp_ble_get_bond_device_list(&deviceCount, deviceList) == ESP_OK) {
+                for (int i = 0; i < deviceCount; i++) {
+                    BLEAddress address(deviceList[i].bd_addr);
+                    Serial.printf("Device %d: %s\n", i, address.toString().c_str());
+                }
+            }
+            if (deviceList) free(deviceList);
+        }
+    } catch (...) {
+        Serial.println("⚠️ Failed to print bonded devices");
     }
-    trustedDevice = new BLEAddress(*address);
-    Serial.printf("Saved trusted device: %s\n", trustedDevice->toString().c_str());
 }
 
-void SmartPaddleBLEClient::clearTrustedDevice() {
-    Preferences prefs;
-    prefs.begin(prefsName.c_str(), false);
-    prefs.remove("trustedDevice");
-    prefs.remove("trustedDevStr");
-    prefs.end();
-    
-    if (trustedDevice) {
-        delete trustedDevice;
-        trustedDevice = nullptr;
+void SmartPaddleBLEClient::removeAllBondedDevices() {
+    try {
+        int deviceCount = esp_ble_get_bond_device_num();
+        
+        if (deviceCount > 0) {
+            esp_ble_bond_dev_t* deviceList = (esp_ble_bond_dev_t*)malloc(sizeof(esp_ble_bond_dev_t) * deviceCount);
+            if (deviceList && esp_ble_get_bond_device_list(&deviceCount, deviceList) == ESP_OK) {
+                for (int i = 0; i < deviceCount; i++) {
+                    esp_ble_remove_bond_device(deviceList[i].bd_addr);
+                }
+            }
+            if (deviceList) free(deviceList);
+            Serial.println("All bonded devices removed");
+        }
+    } catch (...) {
+        Serial.println("⚠️ Failed to remove bonded devices");
     }
-    Serial.println("Cleared trusted device");
+}
+
+bool SmartPaddleBLEClient::isBonded(BLEAddress address) {
+    try {
+        int deviceCount = esp_ble_get_bond_device_num();
+        bool found = false;
+        
+        if (deviceCount > 0) {
+            esp_ble_bond_dev_t* deviceList = (esp_ble_bond_dev_t*)malloc(sizeof(esp_ble_bond_dev_t) * deviceCount);
+            if (deviceList && esp_ble_get_bond_device_list(&deviceCount, deviceList) == ESP_OK) {
+                for (int i = 0; i < deviceCount; i++) {
+                    BLEAddress bondedAddress(deviceList[i].bd_addr);
+                    if (address.equals(bondedAddress)) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (deviceList) free(deviceList);
+        }
+        
+        return found;
+    } catch (...) {
+        Serial.println("⚠️ Failed to check if device is bonded");
+        return false;
+    }
 }
 
 // Обновленный класс для сканирования
@@ -581,37 +617,48 @@ public:
 
             Serial.printf("Found device: %s\n", advertisedDevice.toString().c_str());
             
+            BLEAddress deviceAddress = advertisedDevice.getAddress();
+            
             if(client->isPairing()) {
-                Serial.println("In pairing mode");
-                // В режиме сопряжения сохраняем новое устройство
-                BLEAddress* address = new BLEAddress(advertisedDevice.getAddress());
-                client->saveTrustedDevice(address);
-                delete address;
-                client->is_pairing=false;
+                // В режиме пэринга подключаемся к первому найденному устройству
+                Serial.println("In pairing mode - connecting to found device");
+                // Сохраняем адрес для подключения
+                if (client->deviceToConnect) {
+                    delete client->deviceToConnect;
+                }
+                client->deviceToConnect = new BLEAddress(deviceAddress);
                 BLEDevice::getScan()->stop();
                 client->scanInProgress = false;
-
                 client->do_connect=true;
             } 
-            else if(client->trustedDevice && 
-                   advertisedDevice.getAddress().equals(*client->trustedDevice)) {
-                // Вне режима сопряжения подключаемся только к доверенному устройству
-                Serial.println("Connecting to trusted device");
-                BLEDevice::getScan()->stop();
-                client->scanInProgress = false;
-
-                client->do_connect=true;
+            else {
+                // Вне режима пэринга подключаемся только к bonded устройствам
+                if(client->isBonded(deviceAddress)) {
+                    Serial.println("Connecting to bonded device");
+                    // Сохраняем адрес для подключения
+                    if (client->deviceToConnect) {
+                        delete client->deviceToConnect;
+                    }
+                    client->deviceToConnect = new BLEAddress(deviceAddress);
+                    BLEDevice::getScan()->stop();
+                    client->scanInProgress = false;
+                    client->do_connect=true;
+                } else {
+                    Serial.printf("Device %s is not bonded, skipping\n", deviceAddress.toString().c_str());
+                }
             }
         }
     }
 };
 
 void SmartPaddleBLEClient::startPairing() {
-
+    Serial.println("Starting pairing mode");
     disconnect();
-    is_pairing=true;
-//    clearTrustedDevice();
     
+    // Удаляем все bonded устройства перед началом пэринга
+    removeAllBondedDevices();
+    
+    is_pairing=true;
     startScan(30);
 }
 
@@ -665,9 +712,20 @@ void SmartPaddleBLEClient::begin(const char* deviceName) {
     pSecurity = new BLESecurity();
     pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND);
     pSecurity->setCapability(ESP_IO_CAP_NONE);
-    pSecurity->setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);    
-    // Загрузка сохраненного устройства
-    loadTrustedDevice();
+    pSecurity->setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
+    
+    // Проверяем наличие bonded устройств
+    int bondedCount = esp_ble_get_bond_device_num();
+    Serial.printf("Bonded devices count: %d\n", bondedCount);
+    
+    // Если нет bonded устройств, автоматически включаем режим пэринга
+    if (bondedCount == 0) {
+        Serial.println("No bonded devices found, starting pairing mode automatically");
+        is_pairing = true;
+    } else {
+        is_pairing = false;
+        printBondedDevices();
+    }
 
     BLEScan* pScan = BLEDevice::getScan();
     Serial.println("Setting up scan callbacks");
@@ -677,7 +735,6 @@ void SmartPaddleBLEClient::begin(const char* deviceName) {
     pScan->setInterval(2000);
     pScan->setWindow(1000);
 
-    if (trustedDevice) Serial.printf("Trusted device: %s\n", trustedDevice->toString().c_str());
     do_scan=true;
 
     if (!imuNotifyCallback)
@@ -686,22 +743,24 @@ void SmartPaddleBLEClient::begin(const char* deviceName) {
         orientationNotifyCallback = std::bind(&SmartPaddleBLEClient::orientationCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
     if (!forceNotifyCallback)
         forceNotifyCallback = std::bind(&SmartPaddleBLEClient::forceCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+    if (!batteryLevelNotifyCallback)
+        batteryLevelNotifyCallback = std::bind(&SmartPaddleBLEClient::batteryLevelCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 //    SPClientRTOS::startTasks(this);
 }
 
 
 bool SmartPaddleBLEClient::connect() {
-    if(!trustedDevice) {
-        Serial.println("No trusted device to connect to");
-        return false;
-    }
-    
     if(isConnected) {
         Serial.println("Already connected");
         return true;
     }
     
-    Serial.printf("Connecting to trusted device: %s\n", trustedDevice->toString().c_str());
+    if (!deviceToConnect) {
+        Serial.println("No device address to connect to");
+        return false;
+    }
+    
+    Serial.printf("Connecting to device: %s\n", deviceToConnect->toString().c_str());
     
     // Проверяем, что предыдущий клиент был корректно удален
     if (pClient != nullptr) {
@@ -727,7 +786,7 @@ bool SmartPaddleBLEClient::connect() {
     }
 
     // Подключение к серверу - эта операция блокирующая
-    if(!pClient->connect(*trustedDevice)) {
+    if(!pClient->connect(*deviceToConnect)) {
         Serial.println("Connection failed");
         delete pClient;
         pClient = nullptr;
@@ -790,7 +849,13 @@ bool SmartPaddleBLEClient::connect() {
     bladeOrientation_valid=false;
     for (int i = 0; i < eventHandlerCount; i++) 
         eventHandler[i]->onConnect(this);
-    Serial.printf("Connected to %s\n", trustedDevice->toString().c_str());
+    Serial.printf("Connected to %s\n", deviceToConnect->toString().c_str());
+    
+    // Очищаем адрес после успешного подключения
+    if (deviceToConnect) {
+        delete deviceToConnect;
+        deviceToConnect = nullptr;
+    }
 
     return true;
 }
@@ -931,6 +996,36 @@ bool SmartPaddleBLEClient::setupCharacteristics() {
             delay(50);
         } catch (...) {
             Serial.println("Failed to register orientation notify");
+        }
+    }
+    
+    // Получаем Battery Service и Battery Level Characteristic
+    BLERemoteService* pBatteryService = pClient->getService(BLEUUID((uint16_t)0x180F));
+    if (pBatteryService) {
+        batteryLevelChar = pBatteryService->getCharacteristic(BLEUUID((uint16_t)0x2A19));
+        if (batteryLevelChar) {
+            // Читаем уровень заряда при подключении
+            if (batteryLevelChar->canRead()) {
+                try {
+                    std::string value = batteryLevelChar->readValue();
+                    if (value.length() > 0) {
+                        uint8_t level = (uint8_t)value[0];
+                        Serial.printf("Battery level: %d%%\n", level);
+                    }
+                } catch (...) {
+                    Serial.println("Failed to read battery level");
+                }
+            }
+            
+            // Подписываемся на уведомления об изменении уровня заряда
+            if (batteryLevelChar->canNotify()) {
+                try {
+                    batteryLevelChar->registerForNotify(batteryLevelNotifyCallback, false);
+                    delay(50);
+                } catch (...) {
+                    Serial.println("Failed to register battery level notify");
+                }
+            }
         }
     }
     

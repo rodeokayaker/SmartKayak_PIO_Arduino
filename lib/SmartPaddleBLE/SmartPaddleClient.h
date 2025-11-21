@@ -28,12 +28,13 @@ private:
     BLERemoteCharacteristic* imuChar;
     BLERemoteCharacteristic* orientationChar;
     BLERemoteCharacteristic* bladeChar;
+    BLERemoteCharacteristic* batteryLevelChar;
     std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> imuNotifyCallback;
     std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> orientationNotifyCallback;
     std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> forceNotifyCallback;
     std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> bladeNotifyCallback;
+    std::function<void(BLERemoteCharacteristic*, uint8_t*, size_t, bool)> batteryLevelNotifyCallback;
     
-    BLEAddress* trustedDevice;
     BLESecurity* pSecurity;
     class SPBLEClientCallbacks* clientCallbacks;
 
@@ -60,6 +61,7 @@ private:
     uint32_t timeDifference;
     uint32_t lastScanStartTime;
     bool scanInProgress;
+    BLEAddress* deviceToConnect;  // Адрес устройства для подключения
 
     bool specs_valid;
     bool bladeOrientation_valid;
@@ -71,12 +73,13 @@ private:
     void forceCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     void imuCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
     void orientationCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    
-    void loadTrustedDevice();
-    void saveTrustedDevice(BLEAddress* address);
-    void clearTrustedDevice();
+    void batteryLevelCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
 
     bool setupCharacteristics();
+    
+    // Методы для работы с BLE bonding (private, используются внутри класса)
+    void removeAllBondedDevices();
+    bool isBonded(BLEAddress address);
 
     bool connect();        // BLE connect method
 
@@ -109,6 +112,9 @@ public:
     void calibrateIMU() override;
     void calibrateLoads(BladeSideType blade_side) override;
     void shutdown();
+    
+    // Метод для просмотра bonded устройств
+    void printBondedDevices();
 
     IMUData getIMUData() override;
     loadData getLoadData() override;
