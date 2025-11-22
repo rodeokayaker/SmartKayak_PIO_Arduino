@@ -64,6 +64,8 @@ namespace SP_Math
         float roll() const;
         Quaternion fromYPR(float yaw, float pitch, float roll);
         Vector toYPR() const;
+        void toEuler(float& roll, float& pitch, float& yaw) const;
+        static Quaternion fromEuler(float roll, float pitch, float yaw);
         static Quaternion fromAxisAngle(const Vector& axis, float angle);
         
     };
